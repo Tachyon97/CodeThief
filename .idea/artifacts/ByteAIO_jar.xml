@@ -1,0 +1,8 @@
+<component name="ArtifactManager">
+  <artifact type="jar" name="ByteAIO:jar">
+    <output-path>$USER_HOME$/DreamBot/Scripts</output-path>
+    <root id="archive" name="CodeThieving.jar">
+      <element id="module-output" name="CodeThieving" />
+    </root>
+  </artifact>
+</component>
