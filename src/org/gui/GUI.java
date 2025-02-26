@@ -4,10 +4,7 @@ import org.CodeThiefPro;
 import org.ScriptConfiguration;
 import org.dreambot.api.methods.interactive.Players;
 import org.gui.components.CustomButton;
-import org.gui.panels.AdvancedPanel;
-import org.gui.panels.AntiBanPanel;
-import org.gui.panels.FoodPanel;
-import org.gui.panels.MainSettingsPanel;
+import org.gui.panels.*;
 import org.gui.util.GUIUtils;
 import org.gui.util.SettingsPersistence;
 import org.gui.util.StyleFactory;
@@ -30,6 +27,8 @@ public class GUI extends JFrame {
     private FoodPanel foodPanel;
     private AntiBanPanel antiBanPanel;
     //private AdvancedPanel advancedPanel;
+    private RoguesDenPanel roguesDenPanel;
+
 
     // Current username for anti-ban profile
     private String currentUsername;
@@ -242,12 +241,15 @@ public class GUI extends JFrame {
         tabbedPane.addTab("Food & Health", foodPanel);
         tabbedPane.addTab("Anti-Ban", antiBanPanel);
         //tabbedPane.addTab("Advanced", advancedPanel);
+        roguesDenPanel = new RoguesDenPanel(config);
+        tabbedPane.addTab("Rogues' Den", roguesDenPanel);
 
         // Add tooltips to tabs
         tabbedPane.setToolTipTextAt(0, "Configure basic thieving settings");
         tabbedPane.setToolTipTextAt(1, "Configure food and health settings");
         tabbedPane.setToolTipTextAt(2, "Configure anti-ban behavior");
         //tabbedPane.setToolTipTextAt(3, "Advanced script configuration");
+        tabbedPane.setToolTipTextAt(3, "Configure Rogues' Den settings");
 
         // Ensure tab contents render properly when switching tabs
         tabbedPane.addChangeListener(e -> {
@@ -476,6 +478,7 @@ public class GUI extends JFrame {
             foodPanel.saveSettings();
             antiBanPanel.saveSettings();
             //advancedPanel.saveSettings();
+            roguesDenPanel.saveSettings();
 
             // Save settings to persistent storage
             savePersistedSettings();

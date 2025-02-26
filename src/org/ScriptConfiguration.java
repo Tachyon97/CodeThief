@@ -16,6 +16,13 @@ public class ScriptConfiguration {
     private boolean configured;
     private boolean preferStalls;
 
+    // Rogues' Den settings
+    private boolean roguesDenEnabled;
+    private boolean stopAfterFullOutfit;
+    private boolean useStaminaPotions;
+    private int maxMazeRuns;
+
+
     // Anti-ban settings
     private boolean antiBanEnabled;
     private int antiBanIntensity;
@@ -53,6 +60,46 @@ public class ScriptConfiguration {
         // Initialize food item list
         this.foodItems = Arrays.asList("Cake", "Bread", "Fish", "Shark", "Lobster", "Salmon", "Tuna", "Monkfish",
                 "Food", "Potion", "Brew", "Wine");
+
+        // Default Rogues' Den settings
+        this.roguesDenEnabled = false;
+        this.stopAfterFullOutfit = true;
+        this.useStaminaPotions = true;
+        this.maxMazeRuns = 0; // 0 means unlimited
+
+    }
+
+    // Add these getters and setters
+    public boolean isRoguesDenEnabled() {
+        return roguesDenEnabled;
+    }
+
+    public void setRoguesDenEnabled(boolean roguesDenEnabled) {
+        this.roguesDenEnabled = roguesDenEnabled;
+    }
+
+    public boolean isStopAfterFullOutfit() {
+        return stopAfterFullOutfit;
+    }
+
+    public void setStopAfterFullOutfit(boolean stopAfterFullOutfit) {
+        this.stopAfterFullOutfit = stopAfterFullOutfit;
+    }
+
+    public boolean isUseStaminaPotions() {
+        return useStaminaPotions;
+    }
+
+    public void setUseStaminaPotions(boolean useStaminaPotions) {
+        this.useStaminaPotions = useStaminaPotions;
+    }
+
+    public int getMaxMazeRuns() {
+        return maxMazeRuns;
+    }
+
+    public void setMaxMazeRuns(int maxMazeRuns) {
+        this.maxMazeRuns = maxMazeRuns;
     }
 
     // Getters and setters remain the same
@@ -182,14 +229,12 @@ public class ScriptConfiguration {
             } else {
                 return "Warrior";
             }
-        }
-        else if (thievingLevel >= 5) {
+        } else if (thievingLevel >= 5) {
             if (preferStalls) {
                 return "Cake Stall"; // Only use working stalls
             } else {
                 return "Man";
             }
-        }
-        else return "Man";
+        } else return "Man";
     }
 }

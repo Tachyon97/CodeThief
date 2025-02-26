@@ -21,11 +21,13 @@ import org.dreambot.api.wrappers.interactive.NPC;
 import org.dreambot.api.wrappers.interactive.Player;
 import org.dreambot.api.wrappers.widgets.message.Message;
 import org.gui.GUI;
+import org.gui.panels.RoguesDenPanel;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @ScriptManifest(
@@ -45,6 +47,9 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
     private AntiBanManager antiBanManager;
     private StatisticsTracker statsTracker;
     private GUI gui;
+
+    private RoguesDenManager roguesDenManager;
+
 
     // Tracking variables
     private int consecutiveBankWalkFailures = 0;
@@ -77,6 +82,11 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
             // Create a flag to track configuration status
             final boolean[] configComplete = new boolean[1];
             configComplete[0] = false;
+
+            if (config.isRoguesDenEnabled()) {
+                roguesDenManager = new RoguesDenManager(config);
+                log("Rogues' Den manager initialized");
+            }
 
             // Wait for the GUI to be created and shown
             try {
@@ -283,6 +293,8 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
                     return handleBanking();
                 case HANDLING_HEALTH:
                     return handleHealth();
+                case ROGUES_DEN:
+                    return handleRoguesDen();
                 case ERROR:
                     return handleError();
                 default:
@@ -296,6 +308,60 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
             return 1000;
         }
     }
+
+    private int handleRoguesDen() {
+        if (roguesDenManager == null) {
+            roguesDenManager = new RoguesDenManager(config);
+            log("Rogues' Den manager initialized");
+        }
+
+        try {
+            // Check if we've reached the maximum runs
+            if (config.getMaxMazeRuns() > 0 && roguesDenManager.getMazeRunsCompleted() >= config.getMaxMazeRuns()) {
+                log("Maximum maze runs reached. Stopping Rogues' Den.");
+                setState(ThievingState.INITIALIZE);
+                return 1000;
+            }
+
+            // Handle Rogues' Den operations
+            if (roguesDenManager.handleRoguesDen()) {
+                // Update the GUI with outfit progress if available
+                if (gui != null && gui.isVisible()) {
+                    for (Component component : gui.getComponents()) {
+                        if (component instanceof JTabbedPane) {
+                            JTabbedPane tabPane = (JTabbedPane) component;
+                            for (int i = 0; i < tabPane.getTabCount(); i++) {
+                                if (tabPane.getTitleAt(i).equals("Rogues' Den")) {
+                                    Component tab = tabPane.getComponentAt(i);
+                                    if (tab != null) {
+                                        // Create boolean array of obtained pieces
+                                        boolean[] obtainedPieces = new boolean[5];
+                                        List<RoguesDenManager.OutfitPiece> pieces = roguesDenManager.getObtainedOutfitPieces();
+                                        for (int j = 0; j < pieces.size(); j++) {
+                                            obtainedPieces[j] = pieces.get(j).isObtained();
+                                        }
+                                        ((RoguesDenPanel) tab).updateOutfitPreview(obtainedPieces);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                return 600;
+            } else {
+                // If handleRoguesDen returns false, it means we're done with Rogues' Den
+                log("Rogues' Den completed. Returning to thieving.");
+                setState(ThievingState.INITIALIZE);
+                return 1000;
+            }
+        } catch (Exception e) {
+            log("Error in handleRoguesDen: " + e.getMessage());
+            e.printStackTrace();
+            setState(ThievingState.ERROR);
+            return 1000;
+        }
+    }
+
 
     @Override
     public void onMessage(Message message) {
@@ -340,6 +406,15 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
      * @return Sleep time in ms
      */
     private int handleInitialize() {
+
+        // If Rogues' Den is enabled, set the target and state accordingly
+        if (config.isRoguesDenEnabled()) {
+            config.setCurrentTargetName("Rogues' Den");
+            log("Rogues' Den enabled. Setting target to Rogues' Den.");
+            setState(ThievingState.ROGUES_DEN);
+            return 300;
+        }
+
         // Get current thieving level
         int thievingLevel = Skills.getRealLevel(Skill.THIEVING);
 

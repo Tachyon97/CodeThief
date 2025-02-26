@@ -11,5 +11,6 @@ public enum ThievingState {
     WALKING_TO_BANK,
     BANKING,
     HANDLING_HEALTH,
+    ROGUES_DEN,
     ERROR
 }
