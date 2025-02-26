@@ -3,13 +3,14 @@ package org.gui;
 import org.CodeThiefPro;
 import org.ScriptConfiguration;
 import org.dreambot.api.methods.interactive.Players;
+import org.gui.components.CustomButton;
 import org.gui.panels.AdvancedPanel;
 import org.gui.panels.AntiBanPanel;
 import org.gui.panels.FoodPanel;
 import org.gui.panels.MainSettingsPanel;
 import org.gui.util.GUIUtils;
+import org.gui.util.SettingsPersistence;
 import org.gui.util.StyleFactory;
-import org.pushingpixels.substance.api.skin.SubstanceBusinessLookAndFeel;
 
 import javax.swing.*;
 import java.awt.*;
@@ -18,6 +19,7 @@ import java.util.List;
 
 /**
  * Enhanced configuration GUI for the thieving script with improved styling, organization, and user experience.
+ * Updated to use the redesigned MainSettingsPanel.
  */
 public class GUI extends JFrame {
     private final CodeThiefPro script;
@@ -27,12 +29,13 @@ public class GUI extends JFrame {
     private MainSettingsPanel mainSettingsPanel;
     private FoodPanel foodPanel;
     private AntiBanPanel antiBanPanel;
-    private AdvancedPanel advancedPanel;
-
-    private JTabbedPane tabbedPane;
+    //private AdvancedPanel advancedPanel;
 
     // Current username for anti-ban profile
     private String currentUsername;
+
+    // Settings persistence
+    private SettingsPersistence settingsPersistence;
 
     /**
      * Creates a new enhanced GUI for the script
@@ -55,6 +58,12 @@ public class GUI extends JFrame {
             System.err.println("Error getting player name: " + e.getMessage());
         }
 
+        // Initialize settings persistence
+        this.settingsPersistence = new SettingsPersistence(currentUsername);
+
+        // Load saved settings if available
+        loadPersistedSettings();
+
         // Initialize the GUI on the Event Dispatch Thread to avoid threading issues
         if (SwingUtilities.isEventDispatchThread()) {
             setupGUI();
@@ -71,83 +80,97 @@ public class GUI extends JFrame {
      * Sets up the basic GUI frame and components
      */
     private void setupGUI() {
-        setTitle("CodeThief Pro Configuration");
-        setSize(StyleFactory.MAIN_WINDOW_SIZE);
-        setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-        setLayout(new BorderLayout());
-        setResizable(true);
-
-        // Apply system look and feel with custom colors
         try {
-            UIManager.setLookAndFeel(new SubstanceBusinessLookAndFeel());
+            setTitle("CodeThief Pro Configuration");
+            setSize(StyleFactory.MAIN_WINDOW_SIZE);
+            setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+            setLayout(new BorderLayout());
+            setResizable(true);
+
+            // Skip custom look and feel - use default Java look and feel instead
+            // This avoids issues with Substance look and feel library
+
+            // Set panel background
+            ((JComponent) getContentPane()).setBackground(StyleFactory.BG_DARK_COLOR);
+
+            // Create main content panel
+            JPanel contentPanel = new JPanel(new BorderLayout(0, 10));
+            contentPanel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
+            contentPanel.setBackground(StyleFactory.BG_DARK_COLOR);
+
+            // Create header panel
+            JPanel headerPanel = createHeaderPanel();
+            contentPanel.add(headerPanel, BorderLayout.NORTH);
+
+            // Create tabbed pane with panels
+            JComponent tabbedPanel = createTabbedPane();
+            contentPanel.add(tabbedPanel, BorderLayout.CENTER);
+
+            // Create bottom button panel
+            JPanel buttonPanel = createButtonPanel();
+            contentPanel.add(buttonPanel, BorderLayout.SOUTH);
+
+            // Add main content panel to frame
+            add(contentPanel);
+
+            // Center on screen
+            setLocationRelativeTo(null);
+
+            // Ensure proper rendering
+            GUIUtils.forceRender(this);
         } catch (Exception e) {
-            System.err.println("Error setting look and feel: " + e.getMessage());
+            System.err.println("Error in setupGUI: " + e.getMessage());
+            e.printStackTrace();
+
+            // Fallback to simpler UI if fancy UI fails
+            setupSimpleGUI();
         }
-
-        // Set panel background
-        ((JComponent) getContentPane()).setBackground(StyleFactory.BG_DARK_COLOR);
-
-        // Create header panel
-        JPanel headerPanel = createHeaderPanel();
-        add(headerPanel, BorderLayout.NORTH);
-
-        // Create tabs and panels
-        createTabbedPane();
-
-        // Create bottom button panel
-        JPanel buttonPanel = createButtonPanel();
-        add(buttonPanel, BorderLayout.SOUTH);
-
-        // Center on screen
-        setLocationRelativeTo(null);
-
-        // Ensure proper rendering
-        GUIUtils.forceRender(this);
     }
 
     /**
-     * Creates the tabbed pane with all panels
+     * Sets up a simpler GUI as fallback if the main GUI fails to initialize
      */
-    private void createTabbedPane() {
-        tabbedPane = new JTabbedPane();
-        tabbedPane.setBackground(StyleFactory.BG_DARK_COLOR);
-        tabbedPane.setForeground(StyleFactory.TEXT_COLOR);
-        tabbedPane.setFont(StyleFactory.LABEL_FONT);
-        tabbedPane.setBorder(BorderFactory.createEmptyBorder());
+    private void setupSimpleGUI() {
+        try {
+            // Clear existing components
+            getContentPane().removeAll();
 
-        // Create and add all panels
-        mainSettingsPanel = new MainSettingsPanel(config);
-        foodPanel = new FoodPanel(config);
-        antiBanPanel = new AntiBanPanel(config, currentUsername);
-        advancedPanel = new AdvancedPanel(config);
+            // Set up basic layout
+            setTitle("CodeThief Pro - Simple Mode");
+            setSize(400, 300);
+            setLayout(new BorderLayout());
 
-        tabbedPane.addTab("Main Settings", mainSettingsPanel);
-        tabbedPane.addTab("Food & Health", foodPanel);
-        tabbedPane.addTab("Anti-Ban", antiBanPanel);
-        tabbedPane.addTab("Advanced", advancedPanel);
+            // Create simple tabbed pane
+            JTabbedPane tabs = new JTabbedPane();
 
-        // Add tooltips to tabs
-        tabbedPane.setToolTipTextAt(0, "Configure basic thieving settings");
-        tabbedPane.setToolTipTextAt(1, "Configure food and health settings");
-        tabbedPane.setToolTipTextAt(2, "Configure anti-ban behavior");
-        tabbedPane.setToolTipTextAt(3, "Advanced script configuration");
+            // Create and add simple panels
+            mainSettingsPanel = new MainSettingsPanel(config);
+            foodPanel = new FoodPanel(config);
+            antiBanPanel = new AntiBanPanel(config, currentUsername);
 
-        // Ensure tab contents render properly when switching tabs
-        tabbedPane.addChangeListener(e -> {
-            int selectedIndex = tabbedPane.getSelectedIndex();
-            if (selectedIndex >= 0) {
-                Component component = tabbedPane.getComponentAt(selectedIndex);
-                component.validate();
-                component.repaint();
-            }
-        });
+            tabs.addTab("Main", mainSettingsPanel);
+            tabs.addTab("Food", foodPanel);
+            tabs.addTab("Anti-Ban", antiBanPanel);
 
-        // Add tabbed pane with scroll support
-        JScrollPane tabbedScrollPane = new JScrollPane(tabbedPane);
-        tabbedScrollPane.setBorder(BorderFactory.createEmptyBorder());
-        tabbedScrollPane.setViewportBorder(null);
-        tabbedScrollPane.getVerticalScrollBar().setUnitIncrement(16);
-        add(tabbedScrollPane, BorderLayout.CENTER);
+            add(tabs, BorderLayout.CENTER);
+
+            // Create simple button panel
+            JPanel buttonPanel = new JPanel(new FlowLayout());
+            JButton startButton = new JButton("Start Script");
+            startButton.addActionListener(e -> saveAndClose());
+            buttonPanel.add(startButton);
+
+            add(buttonPanel, BorderLayout.SOUTH);
+
+            // Center on screen
+            setLocationRelativeTo(null);
+        } catch (Exception e) {
+            System.err.println("Error in fallback simple GUI: " + e.getMessage());
+            e.printStackTrace();
+            JOptionPane.showMessageDialog(null,
+                    "Error creating GUI. Please report this bug.\n" + e.getMessage(),
+                    "GUI Error", JOptionPane.ERROR_MESSAGE);
+        }
     }
 
     /**
@@ -200,27 +223,73 @@ public class GUI extends JFrame {
     }
 
     /**
+     * Creates the tabbed pane with all panels
+     */
+    private JComponent createTabbedPane() {
+        JTabbedPane tabbedPane = new JTabbedPane();
+        tabbedPane.setBackground(StyleFactory.BG_DARK_COLOR);
+        tabbedPane.setForeground(StyleFactory.TEXT_COLOR);
+        tabbedPane.setFont(StyleFactory.LABEL_FONT);
+        tabbedPane.setBorder(BorderFactory.createEmptyBorder());
+
+        // Create and add all panels
+        mainSettingsPanel = new MainSettingsPanel(config);
+        foodPanel = new FoodPanel(config);
+        antiBanPanel = new AntiBanPanel(config, currentUsername);
+        //advancedPanel = new AdvancedPanel(config);
+
+        tabbedPane.addTab("Main Settings", mainSettingsPanel);
+        tabbedPane.addTab("Food & Health", foodPanel);
+        tabbedPane.addTab("Anti-Ban", antiBanPanel);
+        //tabbedPane.addTab("Advanced", advancedPanel);
+
+        // Add tooltips to tabs
+        tabbedPane.setToolTipTextAt(0, "Configure basic thieving settings");
+        tabbedPane.setToolTipTextAt(1, "Configure food and health settings");
+        tabbedPane.setToolTipTextAt(2, "Configure anti-ban behavior");
+        //tabbedPane.setToolTipTextAt(3, "Advanced script configuration");
+
+        // Ensure tab contents render properly when switching tabs
+        tabbedPane.addChangeListener(e -> {
+            int selectedIndex = tabbedPane.getSelectedIndex();
+            if (selectedIndex >= 0) {
+                Component component = tabbedPane.getComponentAt(selectedIndex);
+                component.validate();
+                component.repaint();
+            }
+        });
+
+        // Add scroll support for each tab
+        JScrollPane scrollPane = new JScrollPane(tabbedPane);
+        scrollPane.setBorder(BorderFactory.createEmptyBorder());
+        scrollPane.setViewportBorder(null);
+        scrollPane.getVerticalScrollBar().setUnitIncrement(16);
+
+        return scrollPane;
+    }
+
+    /**
      * Creates the button panel
+     */
+    /**
+     * Creates the button panel with custom buttons
      */
     private JPanel createButtonPanel() {
         JPanel panel = new JPanel(new BorderLayout());
         panel.setBackground(StyleFactory.BG_DARK_COLOR);
         panel.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, StyleFactory.BORDER_COLOR));
 
-        // Create button row with help button and start button
+        // Create button row with just help button and start button
         JPanel buttonRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 20, 15));
         buttonRow.setBackground(StyleFactory.BG_DARK_COLOR);
 
         // Help button
-        JButton helpButton = GUIUtils.createStyledButton("?");
-        helpButton.setFont(new Font("SansSerif", Font.BOLD, 14));
-        helpButton.setPreferredSize(new Dimension(40, 40));
+        CustomButton helpButton = CustomButton.createHelpButton();
         helpButton.setToolTipText("Get help with script configuration");
         helpButton.addActionListener(e -> showHelpDialog());
 
         // Start button
-        // UI components
-        JButton startButton = GUIUtils.createStyledButton("Start Script");
+        CustomButton startButton = CustomButton.createStartButton("Start Script");
         startButton.setPreferredSize(new Dimension(200, 40));
         startButton.addActionListener(e -> saveAndClose());
 
@@ -406,7 +475,10 @@ public class GUI extends JFrame {
             mainSettingsPanel.saveSettings();
             foodPanel.saveSettings();
             antiBanPanel.saveSettings();
-            advancedPanel.saveSettings();
+            //advancedPanel.saveSettings();
+
+            // Save settings to persistent storage
+            savePersistedSettings();
 
             // Set configured flag
             config.setConfigured(true);
@@ -457,6 +529,69 @@ public class GUI extends JFrame {
         }
 
         return errors;
+    }
+
+    /**
+     * Saves settings to persistent storage
+     */
+    private void savePersistedSettings() {
+        // Create a simple settings map
+        java.util.Map<String, Object> settings = new java.util.HashMap<>();
+
+        // Add main settings
+        settings.put("currentTargetName", config.getCurrentTargetName());
+        settings.put("autoProgressionEnabled", config.isAutoProgressionEnabled());
+        settings.put("preferStalls", config.preferStalls());
+        settings.put("freestyleMode", config.isFreestyleMode());
+        settings.put("bankingEnabled", config.isBankingEnabled());
+        settings.put("healthThreshold", config.getHealthThreshold());
+
+        // Add anti-ban settings
+        settings.put("antiBanEnabled", config.isAntiBanEnabled());
+        settings.put("antiBanIntensity", config.getAntiBanIntensity());
+
+        // Save settings
+        settingsPersistence.saveSettings(settings);
+    }
+
+    /**
+     * Loads settings from persistent storage
+     */
+    private void loadPersistedSettings() {
+        // Load saved settings
+        java.util.Map<String, Object> settings = settingsPersistence.loadSettings();
+
+        if (settings != null && !settings.isEmpty()) {
+            System.out.println("Loading saved settings for user: " + currentUsername);
+
+            // Load main settings
+            if (settings.containsKey("currentTargetName")) {
+                config.setCurrentTargetName((String) settings.get("currentTargetName"));
+            }
+            if (settings.containsKey("autoProgressionEnabled")) {
+                config.setAutoProgressionEnabled((Boolean) settings.get("autoProgressionEnabled"));
+            }
+            if (settings.containsKey("preferStalls")) {
+                config.setPreferStalls((Boolean) settings.get("preferStalls"));
+            }
+            if (settings.containsKey("freestyleMode")) {
+                config.setFreestyleMode((Boolean) settings.get("freestyleMode"));
+            }
+            if (settings.containsKey("bankingEnabled")) {
+                config.setBankingEnabled((Boolean) settings.get("bankingEnabled"));
+            }
+            if (settings.containsKey("healthThreshold")) {
+                config.setHealthThreshold((Integer) settings.get("healthThreshold"));
+            }
+
+            // Load anti-ban settings
+            if (settings.containsKey("antiBanEnabled")) {
+                config.setAntiBanEnabled((Boolean) settings.get("antiBanEnabled"));
+            }
+            if (settings.containsKey("antiBanIntensity")) {
+                config.setAntiBanIntensity((Integer) settings.get("antiBanIntensity"));
+            }
+        }
     }
 
     /**

@@ -1,6 +1,7 @@
 package org;
 
 import org.dreambot.api.methods.container.impl.Inventory;
+import org.dreambot.api.methods.container.impl.bank.Bank;
 import org.dreambot.api.methods.container.impl.equipment.Equipment;
 import org.dreambot.api.methods.container.impl.equipment.EquipmentSlot;
 import org.dreambot.api.methods.dialogues.Dialogues;
@@ -15,14 +16,11 @@ import org.dreambot.api.wrappers.interactive.NPC;
 import org.dreambot.api.wrappers.interactive.Player;
 import org.dreambot.api.wrappers.items.Item;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Manages thieving locations and walking paths for the script.
- * Updated with optimized Tea Stall functionality
+ * Optimized for teleport handling and robust bank navigation.
  */
 public class LocationManager {
     private final Map<String, Area> thievingAreas;
@@ -32,20 +30,51 @@ public class LocationManager {
     // Special safespot coordinates for Tea Stall
     private final Tile TEA_STALL_SAFESPOT = new Tile(3268, 3410, 0);
 
-    // Teleport items
-    private final String[] teleportItems = {
-            "Amulet of glory",
-            "Games necklace",
-            "Ring of dueling",
-            "Skills necklace",
-            "Ring of wealth",
-            "Combat bracelet"
-    };
-
     // Location tracking
     private long lastWalkAttempt;
     private int failedWalkAttempts;
     private Tile lastWalkableTile;
+    private int consecutiveBankFailures = 0;
+    private long lastTeleportAttempt = 0;
+    private static final long TELEPORT_COOLDOWN = 60000; // 1 minute cooldown on teleport attempts
+
+    // Teleport items with their respective options
+    private static final Map<String, List<TeleportOption>> TELEPORT_ITEMS = new HashMap<>();
+
+    static {
+        // Glory teleports
+        List<TeleportOption> gloryOptions = new ArrayList<>();
+        gloryOptions.add(new TeleportOption("Edgeville", 1, new Tile(3087, 3496, 0)));
+        gloryOptions.add(new TeleportOption("Draynor", 2, new Tile(3105, 3251, 0)));
+        gloryOptions.add(new TeleportOption("Al Kharid", 3, new Tile(3293, 3174, 0)));
+        gloryOptions.add(new TeleportOption("Karamja", 4, new Tile(2918, 3176, 0)));
+        TELEPORT_ITEMS.put("Amulet of glory", gloryOptions);
+
+        // Games necklace
+        List<TeleportOption> gamesOptions = new ArrayList<>();
+        gamesOptions.add(new TeleportOption("Burthorpe", 1, new Tile(2899, 3554, 0)));
+        gamesOptions.add(new TeleportOption("Barbarian Outpost", 2, new Tile(2520, 3571, 0)));
+        gamesOptions.add(new TeleportOption("Corporeal Beast", 3, new Tile(2965, 4382, 2)));
+        gamesOptions.add(new TeleportOption("Tears of Guthix", 4, new Tile(3245, 9500, 0)));
+        TELEPORT_ITEMS.put("Games necklace", gamesOptions);
+
+        // Ring of dueling
+        List<TeleportOption> duelingOptions = new ArrayList<>();
+        duelingOptions.add(new TeleportOption("Castle Wars", 1, new Tile(2440, 3090, 0)));
+        duelingOptions.add(new TeleportOption("Ferox Enclave", 2, new Tile(3148, 3636, 0)));
+        duelingOptions.add(new TeleportOption("Soul Wars", 3, new Tile(2209, 2864, 0)));
+        TELEPORT_ITEMS.put("Ring of dueling", duelingOptions);
+
+        // Skills necklace
+        List<TeleportOption> skillsOptions = new ArrayList<>();
+        skillsOptions.add(new TeleportOption("Fishing Guild", 1, new Tile(2610, 3391, 0)));
+        skillsOptions.add(new TeleportOption("Mining Guild", 2, new Tile(3049, 9762, 0)));
+        skillsOptions.add(new TeleportOption("Crafting Guild", 3, new Tile(2933, 3292, 0)));
+        skillsOptions.add(new TeleportOption("Cooking Guild", 4, new Tile(3144, 3443, 0)));
+        skillsOptions.add(new TeleportOption("Woodcutting Guild", 5, new Tile(1662, 3505, 0)));
+        skillsOptions.add(new TeleportOption("Farming Guild", 6, new Tile(1249, 3719, 0)));
+        TELEPORT_ITEMS.put("Skills necklace", skillsOptions);
+    }
 
     /**
      * Creates a new location manager
@@ -83,18 +112,21 @@ public class LocationManager {
         }
 
         // Find closest bank to current area
-        Area closestBank = null;
+        String closestBankName = null;
         double closestDistance = Double.MAX_VALUE;
 
-        for (Area bankArea : bankAreas.values()) {
-            double distance = currentArea.getCenter().distance(bankArea.getCenter());
+        for (Map.Entry<String, Area> entry : bankAreas.entrySet()) {
+            double distance = currentArea.getCenter().distance(entry.getValue().getCenter());
+            // Add a small random factor to avoid comparison issues when distances are equal
+            distance += Math.random() * 0.001;
+
             if (distance < closestDistance) {
                 closestDistance = distance;
-                closestBank = bankArea;
+                closestBankName = entry.getKey();
             }
         }
 
-        return closestBank != null ? closestBank : bankAreas.get("Default");
+        return bankAreas.get(closestBankName != null ? closestBankName : "Default");
     }
 
     /**
@@ -115,55 +147,63 @@ public class LocationManager {
 
         // Special case for Tea Stall - walk to the specific safespot
         if (targetName.equals("Tea Stall")) {
-            if (localPlayer.distance(TEA_STALL_SAFESPOT) > 3) {
-                System.out.println("[LocationManager] Walking to Tea Stall safespot: " + TEA_STALL_SAFESPOT);
-                return Walking.walk(TEA_STALL_SAFESPOT);
+            if (localPlayer.distance(TEA_STALL_SAFESPOT) <= 3) {
+                return true; // Already at tea stall safespot
             }
-            // We're already at the tea stall safespot
-            return true;
+
+            System.out.println("[LocationManager] Walking to Tea Stall safespot: " + TEA_STALL_SAFESPOT);
+            // Try to walk exactly to the safespot for precision
+            return Walking.walkExact(TEA_STALL_SAFESPOT);
         }
 
         // Normal handling for other targets
-        if (!area.contains(localPlayer)) {
-            // Check for teleport if far away
-            if (shouldUseTeleport(area)) {
-                if (useTeleport(area)) {
-                    System.out.println("[LocationManager] Used teleport to get closer to destination");
-                    return true;
-                }
-            }
+        if (area.contains(localPlayer)) {
+            return true; // Already in the right area
+        }
 
-            // Calculate where in the area to walk based on target type
-            Tile destination = determineOptimalDestination(area);
-
-            // Track this walk attempt
-            lastWalkAttempt = System.currentTimeMillis();
-
-            // Check if we're stuck
-            if (isPlayerStuck()) {
-                // Try a different tile if we're stuck
-                destination = findAlternativeWalkableTile(area);
-                System.out.println("[LocationManager] Possibly stuck, trying alternative tile: " + destination);
-            }
-
-            if (destination != null) {
-                boolean walkResult = Walking.walk(destination);
-
-                if (!walkResult) {
-                    failedWalkAttempts++;
-                    System.out.println("[LocationManager] Walk failed (Attempt " + failedWalkAttempts + ")");
-                } else {
-                    failedWalkAttempts = 0;
-                    lastWalkableTile = destination;
-                }
-
-                return walkResult;
-            } else {
-                System.out.println("[LocationManager] Failed to find valid destination in thieving area");
-                return false;
+        // Check for teleport if far away
+        if (shouldUseTeleport(area)) {
+            if (useTeleport(area)) {
+                System.out.println("[LocationManager] Used teleport to get closer to destination");
+                return true;
             }
         }
-        return true;
+
+        // Calculate where in the area to walk
+        Tile destination = determineOptimalDestination(area);
+
+        // Track this walk attempt
+        lastWalkAttempt = System.currentTimeMillis();
+
+        // Check if we're stuck
+        if (isPlayerStuck()) {
+            // Try a different tile if we're stuck
+            destination = findAlternativeWalkableTile(area);
+            System.out.println("[LocationManager] Possibly stuck, trying alternative tile: " + destination);
+        }
+
+        if (destination != null) {
+            // Ensure run is enabled for efficiency if we have enough energy
+            if (!Walking.isRunEnabled() && Walking.getRunEnergy() > Walking.getRunThreshold()) {
+                Walking.toggleRun();
+            }
+
+            // Walk to the destination - this uses web/local pathfinding as needed
+            boolean walkResult = Walking.walk(destination);
+
+            if (!walkResult) {
+                failedWalkAttempts++;
+                System.out.println("[LocationManager] Walk failed (Attempt " + failedWalkAttempts + ")");
+            } else {
+                failedWalkAttempts = 0;
+                lastWalkableTile = destination;
+            }
+
+            return walkResult;
+        } else {
+            System.out.println("[LocationManager] Failed to find valid destination in thieving area");
+            return false;
+        }
     }
 
     /**
@@ -183,6 +223,15 @@ public class LocationManager {
             return true;
         }
 
+        // If we haven't moved in a while and have a destination
+        Tile destination = Walking.getDestination();
+        if (destination != null) {
+            Player local = Players.getLocal();
+            if (local.distance(destination) > 5 && !local.isMoving() && walkTime > 5000) {
+                return true;
+            }
+        }
+
         return false;
     }
 
@@ -197,29 +246,61 @@ public class LocationManager {
         Player localPlayer = Players.getLocal();
         Tile playerTile = localPlayer.getTile();
 
-        // Try different tiles in the area
-        List<Tile> areaTiles = List.of(area.getTiles());
+        // Create list for reachable tiles
+        List<Tile> reachableTiles = new ArrayList<>();
 
-        // Sort tiles by distance to player
-        areaTiles.sort((t1, t2) ->
-                (int) (t1.distance(playerTile) - t2.distance(playerTile)));
-
-        // Try up to 5 different tiles
-        for (int i = 0; i < Math.min(5, areaTiles.size()); i++) {
-            Tile tile = areaTiles.get(i);
-
-            // Skip the last tile we tried
-            if (lastWalkableTile != null && tile.equals(lastWalkableTile)) {
-                continue;
-            }
-
-            if (tile.canReach()) {
-                return tile;
+        // Check each tile in the area to find reachable ones
+        for (Tile tile : area.getTiles()) {
+            // Use walking API to check if we can walk to it
+            if (Walking.canWalk(tile)) {
+                reachableTiles.add(tile);
             }
         }
 
-        // If we still can't find a reachable tile, try a random one
-        return area.getRandomTile();
+        // If no reachable tiles, try to find any walkable tile in the general direction
+        if (reachableTiles.isEmpty()) {
+            Tile areaCenter = area.getCenter();
+            int dx = areaCenter.getX() - playerTile.getX();
+            int dy = areaCenter.getY() - playerTile.getY();
+
+            // Create a tile that's a few steps in the general direction
+            int stepSize = 5;
+            int stepX = dx > 0 ? stepSize : (dx < 0 ? -stepSize : 0);
+            int stepY = dy > 0 ? stepSize : (dy < 0 ? -stepSize : 0);
+
+            Tile stepTile = new Tile(
+                    playerTile.getX() + stepX,
+                    playerTile.getY() + stepY,
+                    playerTile.getZ()
+            );
+
+            // Use getClosestTileOnMap to find a walkable version of this tile
+            Tile mapTile = Walking.getClosestTileOnMap(stepTile);
+            if (mapTile != null) {
+                return mapTile;
+            }
+
+            return stepTile;
+        }
+
+        // Sort tiles by distance with a stable approach (no risk of comparison issues)
+        List<TileDistance> tileDistances = new ArrayList<>();
+        for (Tile tile : reachableTiles) {
+            double distance = tile.distance(playerTile);
+            // Add a tiny random factor to ensure no identical distances
+            distance += Math.random() * 0.001;
+            tileDistances.add(new TileDistance(tile, distance));
+        }
+
+        // Sort by distance
+        Collections.sort(tileDistances, Comparator.comparingDouble(TileDistance::getDistance));
+
+        // Skip the last tile we tried
+        if (lastWalkableTile != null) {
+            tileDistances.removeIf(td -> td.getTile().equals(lastWalkableTile));
+        }
+
+        return tileDistances.isEmpty() ? area.getCenter() : tileDistances.get(0).getTile();
     }
 
     /**
@@ -239,34 +320,27 @@ public class LocationManager {
 
         // For Cake Stall, find the actual stall
         if (targetName.equals("Cake Stall")) {
-            // Look for any game object containing "cake" and "stall" in the name
-            List<GameObject> cakeStalls = GameObjects.all(obj ->
+            GameObject cakeStall = GameObjects.closest(obj ->
                     obj.getName().toLowerCase().contains("cake") &&
                             obj.getName().toLowerCase().contains("stall") &&
                             area.contains(obj));
 
-            if (!cakeStalls.isEmpty()) {
-                // Sort by distance
-                cakeStalls.sort((s1, s2) -> (int) (s1.distance() - s2.distance()));
-
-                // Get the closest stall
-                GameObject closestStall = cakeStalls.get(0);
-
-                // Find a tile near the stall
+            if (cakeStall != null) {
+                // Find a valid tile near the stall
                 for (int x = -1; x <= 1; x++) {
                     for (int y = -1; y <= 1; y++) {
                         Tile nearbyTile = new Tile(
-                                closestStall.getTile().getX() + x,
-                                closestStall.getTile().getY() + y,
-                                closestStall.getTile().getZ());
+                                cakeStall.getTile().getX() + x,
+                                cakeStall.getTile().getY() + y,
+                                cakeStall.getTile().getZ()
+                        );
 
-                        if (nearbyTile.canReach()) {
+                        if (Walking.canWalk(nearbyTile)) {
                             return nearbyTile;
                         }
                     }
                 }
-
-                return closestStall.getTile();
+                return cakeStall.getTile();
             }
         }
 
@@ -276,29 +350,13 @@ public class LocationManager {
                 !targetName.equals("Wall Safe") &&
                 !targetName.equals("Pyramid Plunder")) {
 
-            List<NPC> reachableNPCs = new ArrayList<>();
-
-            // Get all matching NPCs in area
-            List<NPC> allNPCs = NPCs.all(npc ->
+            NPC target = NPCs.closest(npc ->
                     npc.getName().equals(targetName) &&
                             area.contains(npc) &&
-                            !npc.isInCombat());
+                            !npc.isInCombat() &&
+                            Walking.canWalk(npc));
 
-            // Filter for reachable ones
-            for (NPC npc : allNPCs) {
-                if (npc.canReach()) {
-                    reachableNPCs.add(npc);
-                }
-            }
-
-            // Sort by distance
-            reachableNPCs.sort((npc1, npc2) ->
-                    (int) (npc1.distance(localPlayer) - npc2.distance(localPlayer)));
-
-            // Find a tile near the closest reachable NPC
-            if (!reachableNPCs.isEmpty()) {
-                NPC target = reachableNPCs.get(0);
-
+            if (target != null) {
                 // Get a tile near the NPC but not exactly on it
                 Tile npcTile = target.getTile();
 
@@ -307,36 +365,40 @@ public class LocationManager {
                     for (int y = -1; y <= 1; y++) {
                         if (x == 0 && y == 0) continue; // Skip the exact NPC tile
 
-                        Tile nearbyTile = new Tile(npcTile.getX() + x, npcTile.getY() + y, npcTile.getZ());
-                        if (nearbyTile.canReach()) {
+                        Tile nearbyTile = new Tile(
+                                npcTile.getX() + x,
+                                npcTile.getY() + y,
+                                npcTile.getZ()
+                        );
+
+                        if (Walking.canWalk(nearbyTile)) {
                             return nearbyTile;
                         }
                     }
                 }
-
-                // If no nearby tile is reachable, use the NPC's tile
                 return npcTile;
             }
         }
 
-        // Default: try to find any reachable tile in the area
-        List<Tile> reachableTiles = new ArrayList<>();
+        // Find any walkable tile in the area
+        List<TileDistance> walkableTiles = new ArrayList<>();
         for (Tile tile : area.getTiles()) {
-            if (tile.canReach()) {
-                reachableTiles.add(tile);
+            if (Walking.canWalk(tile)) {
+                double distance = tile.distance(localPlayer);
+                // Add tiny random factor to ensure no comparison issues
+                distance += Math.random() * 0.001;
+                walkableTiles.add(new TileDistance(tile, distance));
             }
         }
 
-        if (!reachableTiles.isEmpty()) {
+        if (!walkableTiles.isEmpty()) {
             // Sort by distance
-            reachableTiles.sort((t1, t2) ->
-                    (int) (t1.distance(localPlayer) - t2.distance(localPlayer)));
-
-            return reachableTiles.get(0);
+            Collections.sort(walkableTiles, Comparator.comparingDouble(TileDistance::getDistance));
+            return walkableTiles.get(0).getTile();
         }
 
-        // Last resort: just return the center of the area
-        return area.getCenter();
+        // Last resort: use the center of the area
+        return Walking.getClosestTileOnMap(area.getCenter());
     }
 
     /**
@@ -345,34 +407,92 @@ public class LocationManager {
      * @return True if already at the bank or successfully walking to it
      */
     public boolean walkToBank() {
-        Area bank = getNearestBankArea();
-        if (bank == null) {
-            System.out.println("[LocationManager] Could not find a suitable bank area");
-            return false;
-        }
+        try {
+            // First check if we're already at a bank
+            if (Bank.isOpen() || Bank.isOpen()) {
+                System.out.println("[LocationManager] Already at bank");
+                consecutiveBankFailures = 0;
+                return true;
+            }
 
-        Player localPlayer = Players.getLocal();
-        if (!bank.contains(localPlayer)) {
-            // Try to find a reachable tile in the bank area
-            List<Tile> reachableTiles = new ArrayList<>();
-            for (Tile tile : bank.getTiles()) {
-                if (tile.canReach()) {
-                    reachableTiles.add(tile);
+            // Then check if in a bank area
+            Area bank = getNearestBankArea();
+            Player localPlayer = Players.getLocal();
+
+            if (bank != null && bank.contains(localPlayer)) {
+                System.out.println("[LocationManager] In bank area");
+                consecutiveBankFailures = 0;
+                return true;
+            }
+
+            // Ensure run is enabled for efficiency if we have enough energy
+            if (!Walking.isRunEnabled() && Walking.getRunEnergy() > Walking.getRunThreshold()) {
+                Walking.toggleRun();
+            }
+
+            // Walk to nearest bank booth - this should work in most cases
+            if (Bank.getClosestBankLocation() != null) {
+                System.out.println("[LocationManager] Walking to nearest bank booth");
+                boolean result = Walking.walk(Bank.getClosestBankLocation().getCenter());
+
+                if (result) {
+                    consecutiveBankFailures = 0;
+                    return true;
                 }
             }
 
-            if (!reachableTiles.isEmpty()) {
-                // Sort by distance
-                reachableTiles.sort((t1, t2) ->
-                        (int) (t1.distance(localPlayer) - t2.distance(localPlayer)));
+            // If bank booth walking failed, try our manual bank areas
+            if (bank != null) {
+                // Find a walkable tile in the bank area
+                Tile walkableTile = null;
 
-                return Walking.walk(reachableTiles.get(0));
+                for (Tile tile : bank.getTiles()) {
+                    if (Walking.canWalk(tile)) {
+                        // If we can directly walk to this tile, use it
+                        walkableTile = tile;
+                        break;
+                    }
+                }
+
+                // If we didn't find a directly walkable tile, use the center
+                if (walkableTile == null) {
+                    walkableTile = Walking.getClosestTileOnMap(bank.getCenter());
+                }
+
+                if (walkableTile != null) {
+                    System.out.println("[LocationManager] Walking to bank area at: " + walkableTile);
+                    boolean result = Walking.walk(walkableTile);
+
+                    if (result) {
+                        consecutiveBankFailures = 0;
+                        return true;
+                    }
+                }
             }
 
-            // If no reachable tiles found, use default walk
-            return Walking.walk(bank.getRandomTile());
+            // If all else fails, try clicking a random bank tile on the minimap
+            if (bank != null) {
+                Tile randomTile = bank.getRandomTile();
+                System.out.println("[LocationManager] Last resort: Clicking bank area on minimap");
+                boolean result = Walking.clickTileOnMinimap(randomTile);
+
+                if (result) {
+                    consecutiveBankFailures = 0;
+                    return true;
+                }
+            }
+
+            // All walking attempts failed
+            System.out.println("[LocationManager] All bank walking attempts failed");
+            consecutiveBankFailures++;
+            return false;
+
+        } catch (Exception e) {
+            System.out.println("[LocationManager] Error in walkToBank: " + e.getMessage());
+            e.printStackTrace();
+            consecutiveBankFailures++;
+            return false;
         }
-        return true;
     }
 
     /**
@@ -401,7 +521,6 @@ public class LocationManager {
 
     /**
      * Checks if a thieving target is available at the current location
-     * More specific than just checking if we're in the area
      *
      * @return True if a valid target exists in the vicinity
      */
@@ -414,31 +533,14 @@ public class LocationManager {
             return false;
         }
 
-        // Special case for Tea Stall - more flexible detection
+        // Special case for Tea Stall
         if (targetName.equals("Tea Stall")) {
-            // Look for any tea stall within a reasonable radius of the safespot
             List<GameObject> teaStalls = GameObjects.all(obj ->
                     obj.getName().toLowerCase().contains("tea") &&
                             obj.getName().toLowerCase().contains("stall") &&
                             obj.distance(TEA_STALL_SAFESPOT) < 5);
 
-            if (!teaStalls.isEmpty()) {
-                System.out.println("[LocationManager] Found Tea Stall at safespot");
-
-                // Print debug info about the tea stall
-                GameObject teaStall = teaStalls.get(0);
-                String[] actions = teaStall.getActions();
-                String actionsList = actions != null ? String.join(", ", actions) : "null";
-                System.out.println("[LocationManager] Tea Stall details: " + teaStall.getName() +
-                        " | ID: " + teaStall.getID() +
-                        " | Distance: " + teaStall.distance() +
-                        " | Actions: " + actionsList);
-
-                return true;
-            }
-
-            System.out.println("[LocationManager] At Tea Stall location but no stall found nearby");
-            return false;
+            return !teaStalls.isEmpty();
         }
 
         // Check for cake stall specifically
@@ -448,43 +550,40 @@ public class LocationManager {
                             obj.getName().toLowerCase().contains("stall") &&
                             obj.distance(localPlayer) < 7);
 
-            if (target != null) {
-                System.out.println("[LocationManager] Found Cake Stall at distance: " + target.distance());
-                return true;
-            } else {
-                System.out.println("[LocationManager] At Cake Stall location but no stall found nearby");
-                return false;
-            }
+            return target != null;
         }
 
         // Check for NPC targets
-        else if (!targetName.equals("Chest") && !targetName.equals("Wall Safe") && !targetName.equals("Pyramid Plunder")) {
+        if (!targetName.equals("Chest") && !targetName.equals("Wall Safe") && !targetName.equals("Pyramid Plunder")) {
             NPC target = NPCs.closest(npc ->
                     npc.getName().equals(targetName) &&
                             npc.hasAction("Pickpocket") &&
                             npc.distance(localPlayer) < 15 &&
                             !npc.isInCombat() &&
-                            npc.canReach());
+                            Walking.canWalk(npc));
 
             return target != null;
         }
+
         // Special cases
-        else if (targetName.equals("Chest")) {
+        if (targetName.equals("Chest")) {
             GameObject target = GameObjects.closest(obj ->
                     obj.getName().toLowerCase().contains("chest") &&
                             obj.hasAction("Open") &&
                             obj.distance(localPlayer) < 15 &&
-                            obj.canReach());
+                            Walking.canWalk(obj));
 
             return target != null;
+
         } else if (targetName.equals("Wall Safe")) {
             GameObject target = GameObjects.closest(obj ->
                     obj.getName().toLowerCase().contains("wall safe") &&
                             obj.hasAction("Crack") &&
                             obj.distance(localPlayer) < 15 &&
-                            obj.canReach());
+                            Walking.canWalk(obj));
 
             return target != null;
+
         } else if (targetName.equals("Pyramid Plunder")) {
             return isAtThievingArea();
         }
@@ -498,6 +597,12 @@ public class LocationManager {
      * @return True if at a bank
      */
     public boolean isAtBank() {
+        // First check if the bank is open or nearby
+        if (Bank.isOpen() || Bank.isOpen()) {
+            return true;
+        }
+
+        // Then check if in a bank area
         Player localPlayer = Players.getLocal();
         for (Area bankArea : bankAreas.values()) {
             if (bankArea.contains(localPlayer)) {
@@ -509,8 +614,56 @@ public class LocationManager {
     }
 
     /**
+     * Gets teleport items from bank and manages bank interactions
+     *
+     * @return True if teleport items were successfully obtained
+     */
+    public boolean getTeleportItemsFromBank() {
+        try {
+            // Check if we have teleport items already
+            for (String teleportItem : TELEPORT_ITEMS.keySet()) {
+                if (hasTeleportItem(teleportItem)) {
+                    System.out.println("[LocationManager] Already have teleport item: " + teleportItem);
+                    return true;
+                }
+            }
+
+            // Need to get teleport items from bank
+            if (!Bank.isOpen()) {
+                if (!Bank.open()) {
+                    System.out.println("[LocationManager] Failed to open bank");
+                    return false;
+                }
+                sleep(600, 900); // Wait for bank to open
+            }
+
+            // Check for each teleport item in bank
+            for (String teleportItem : TELEPORT_ITEMS.keySet()) {
+                // Look for items containing the name (with any charges)
+                Item bankItem = Bank.get(item ->
+                        item != null &&
+                                item.getName().toLowerCase().contains(teleportItem.toLowerCase()));
+
+                if (bankItem != null) {
+                    System.out.println("[LocationManager] Found teleport item in bank: " + bankItem.getName());
+                    if (Bank.withdraw(bankItem.getName(), 1)) {
+                        sleep(600, 900);
+                        return true;
+                    }
+                }
+            }
+
+            System.out.println("[LocationManager] No teleport items found in bank");
+            return false;
+
+        } catch (Exception e) {
+            System.out.println("[LocationManager] Error getting teleport items: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
      * Initializes all thieving areas
-     * Updated with precise Tea Stall location
      *
      * @return Map of target names to areas
      */
@@ -580,7 +733,7 @@ public class LocationManager {
         areas.put("Cake Stall", new Area(
                 new Tile(2643, 3295, 0),
                 new Tile(2647, 3299, 0)
-        )); // Ardougne market - more precise area
+        )); // Ardougne market
 
         return areas;
     }
@@ -645,14 +798,19 @@ public class LocationManager {
         return banks;
     }
 
-    // Rest of the methods remain unchanged - shouldUseTeleport, hasTeleportItem, useTeleport, etc.
-    // Including them here for completeness
-
     /**
      * Checks if we should use a teleport to reach a destination
+     *
+     * @param destination The destination area
+     * @return True if we should use a teleport
      */
     public boolean shouldUseTeleport(Area destination) {
         if (destination == null) {
+            return false;
+        }
+
+        // Don't teleport too frequently
+        if (System.currentTimeMillis() - lastTeleportAttempt < TELEPORT_COOLDOWN) {
             return false;
         }
 
@@ -662,7 +820,7 @@ public class LocationManager {
         // Only use teleports for long distances
         if (distance > 50) {
             // Check if we have teleport items
-            for (String teleportItem : teleportItems) {
+            for (String teleportItem : TELEPORT_ITEMS.keySet()) {
                 if (hasTeleportItem(teleportItem)) {
                     return true;
                 }
@@ -674,17 +832,20 @@ public class LocationManager {
 
     /**
      * Checks if player has a specific teleport item
+     *
+     * @param itemName The teleport item name
+     * @return True if player has the item
      */
     private boolean hasTeleportItem(String itemName) {
-        // Check inventory
+        // Check inventory for any item containing the name
         if (Inventory.contains(item ->
-                item != null && item.getName().contains(itemName))) {
+                item != null && item.getName().toLowerCase().contains(itemName.toLowerCase()))) {
             return true;
         }
 
         // Check equipment (glory, etc.)
         if (Equipment.contains(item ->
-                item != null && item.getName().contains(itemName))) {
+                item != null && item.getName().toLowerCase().contains(itemName.toLowerCase()))) {
             return true;
         }
 
@@ -693,80 +854,126 @@ public class LocationManager {
 
     /**
      * Uses an appropriate teleport item to get closer to destination
+     *
+     * @param destination The destination area
+     * @return True if teleport successful
      */
     public boolean useTeleport(Area destination) {
         if (destination == null) {
             return false;
         }
 
-        // Determine destination region (very simplified)
+        lastTeleportAttempt = System.currentTimeMillis();
         String region = determineRegion(destination);
         System.out.println("[LocationManager] Trying to teleport to region: " + region);
 
-        // Try glory first (most useful)
-        if (region.equals("Draynor") || region.equals("Al Kharid") ||
-                region.equals("Edgeville") || region.equals("Karamja")) {
+        // Find the closest teleport option to our destination
+        TeleportOption bestOption = findBestTeleportOption(destination);
+        if (bestOption == null) {
+            System.out.println("[LocationManager] No suitable teleport option found");
+            return false;
+        }
 
-            // Try equipped glory
-            Item glory = Equipment.getItemInSlot(EquipmentSlot.AMULET.getSlot());
-            if (glory != null && glory.getName().contains("Amulet of glory")) {
-                System.out.println("[LocationManager] Using equipped glory");
-                if (glory.interact("Rub")) {
-                    sleep(1000, 2000);
+        System.out.println("[LocationManager] Best teleport option: " + bestOption.getLocationName());
 
-                    // Select destination based on region
-                    int option = 0;
-                    if (region.equals("Draynor")) option = 1;
-                    else if (region.equals("Al Kharid")) option = 2;
-                    else if (region.equals("Edgeville")) option = 3;
-                    else if (region.equals("Karamja")) option = 4;
+        // Find the teleport item for this option
+        String teleportItemName = TELEPORT_ITEMS.entrySet().stream().filter(entry -> entry.getValue().contains(bestOption)).findFirst().map(Map.Entry::getKey).orElse(null);
 
-                    // Click the option if valid using Dialogues
-                    if (option > 0 && Dialogues.canContinue()) {
-                        Dialogues.continueDialogue();
-                        sleep(600, 1000);
+        if (teleportItemName == null) {
+            System.out.println("[LocationManager] Could not find teleport item for option");
+            return false;
+        }
 
-                        if (Dialogues.chooseOption(option)) {
-                            sleep(2000, 3000); // Wait for teleport
-                            return true;
-                        }
-                    }
-                }
-            }
+        // Try equipped item first
+        Item equipped = Equipment.getItemInSlot(EquipmentSlot.AMULET.getSlot());
+        if (equipped != null && equipped.getName().toLowerCase().contains(teleportItemName.toLowerCase())) {
+            if (equipped.interact("Rub") || equipped.interact("Teleport")) {
+                System.out.println("[LocationManager] Rubbing equipped " + equipped.getName());
+                sleep(1000, 2000);
 
-            // Try inventory glory
-            Item invGlory = Inventory.get(item ->
-                    item != null && item.getName().contains("Amulet of glory"));
-
-            if (invGlory != null) {
-                System.out.println("[LocationManager] Using inventory glory");
-                if (invGlory.interact("Rub")) {
-                    sleep(1000, 2000);
-
-                    // Select destination based on region
-                    int option = 0;
-                    if (region.equals("Draynor")) option = 1;
-                    else if (region.equals("Al Kharid")) option = 2;
-                    else if (region.equals("Edgeville")) option = 3;
-                    else if (region.equals("Karamja")) option = 4;
-
-                    // Click the option if valid using Dialogues
-                    if (option > 0 && Dialogues.canContinue()) {
-                        Dialogues.continueDialogue();
-                        sleep(600, 1000);
-
-                        if (Dialogues.chooseOption(option)) {
-                            sleep(2000, 3000); // Wait for teleport
-                            return true;
-                        }
-                    }
+                if (selectDialogueOption(bestOption.getDialogueOption())) {
+                    sleep(3000, 4000); // Wait for teleport
+                    return true;
                 }
             }
         }
 
-        // Other teleport implementations can be added here
+        // Try inventory item
+        Item invItem = Inventory.get(item ->
+                item != null && item.getName().toLowerCase().contains(teleportItemName.toLowerCase()));
 
+        if (invItem != null) {
+            System.out.println("[LocationManager] Using inventory " + invItem.getName());
+            if (invItem.interact("Rub") || invItem.interact("Teleport")) {
+                sleep(1000, 2000);
+
+                if (selectDialogueOption(bestOption.getDialogueOption())) {
+                    sleep(3000, 4000); // Wait for teleport
+                    return true;
+                }
+            }
+        }
+
+        System.out.println("[LocationManager] Failed to use teleport");
         return false;
+    }
+
+    /**
+     * Finds the best teleport option for a destination
+     *
+     * @param destination The destination area
+     * @return The best teleport option
+     */
+    private TeleportOption findBestTeleportOption(Area destination) {
+        Tile destCenter = destination.getCenter();
+        TeleportOption bestOption = null;
+        double bestDistance = Double.MAX_VALUE;
+
+        for (List<TeleportOption> options : TELEPORT_ITEMS.values()) {
+            for (TeleportOption option : options) {
+                double distance = option.getLocation().distance(destCenter);
+                // Add a tiny random factor to avoid comparison issues
+                distance += Math.random() * 0.001;
+
+                if (distance < bestDistance) {
+                    bestDistance = distance;
+                    bestOption = option;
+                }
+            }
+        }
+
+        return bestOption;
+    }
+
+    /**
+     * Selects a dialogue option
+     *
+     * @param option The dialogue option index (1-based)
+     * @return True if option was selected
+     */
+    private boolean selectDialogueOption(int option) {
+        try {
+            // Try multiple ways to select dialogue option
+            if (Dialogues.canContinue()) {
+                Dialogues.continueDialogue();
+                sleep(600, 1000);
+            }
+
+            if (Dialogues.isProcessing()) {
+                sleep(600, 1000);
+            }
+
+            if (Dialogues.chooseOption(option)) {
+                System.out.println("[LocationManager] Selected dialogue option " + option);
+                return true;
+            }
+
+            System.out.println("[LocationManager] Failed to select dialogue option");
+            return false;
+        } catch (Exception e) {
+            System.out.println("[LocationManager] Error in dialogue: " + e.getMessage());
+            return false;
+        }
     }
 
     /**
@@ -810,6 +1017,54 @@ public class LocationManager {
             Thread.sleep(min + (int) (Math.random() * (max - min)));
         } catch (InterruptedException e) {
             e.printStackTrace();
+        }
+    }
+
+    /**
+     * Helper class to store a tile with its distance for stable sorting
+     */
+    private static class TileDistance {
+        private final Tile tile;
+        private final double distance;
+
+        public TileDistance(Tile tile, double distance) {
+            this.tile = tile;
+            this.distance = distance;
+        }
+
+        public Tile getTile() {
+            return tile;
+        }
+
+        public double getDistance() {
+            return distance;
+        }
+    }
+
+    /**
+     * Represents a teleport option for a teleport item
+     */
+    private static class TeleportOption {
+        private final String locationName;
+        private final int dialogueOption;
+        private final Tile location;
+
+        public TeleportOption(String locationName, int dialogueOption, Tile location) {
+            this.locationName = locationName;
+            this.dialogueOption = dialogueOption;
+            this.location = location;
+        }
+
+        public String getLocationName() {
+            return locationName;
+        }
+
+        public int getDialogueOption() {
+            return dialogueOption;
+        }
+
+        public Tile getLocation() {
+            return location;
         }
     }
 }

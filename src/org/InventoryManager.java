@@ -1,20 +1,49 @@
 package org;
 
-import org.checkerframework.checker.nullness.qual.NonNull;
 import org.dreambot.api.methods.container.impl.Inventory;
 import org.dreambot.api.methods.container.impl.bank.Bank;
+import org.dreambot.api.methods.container.impl.equipment.Equipment;
 import org.dreambot.api.methods.skills.Skill;
 import org.dreambot.api.methods.skills.Skills;
 import org.dreambot.api.wrappers.items.Item;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
- * Manages inventory operations for the thieving script.
+ * Enhanced inventory manager for the thieving script.
+ * Handles food management, teleport items, and loot organization.
  */
 public class InventoryManager {
     private final ScriptConfiguration config;
+
+    // Teleport items that can be used for navigation
+    private static final String[] TELEPORT_ITEMS = {
+            "Amulet of glory", "Games necklace", "Ring of dueling",
+            "Skills necklace", "Ring of wealth", "Combat bracelet"
+    };
+
+    // Common food keywords for auto-detection
+    private static final String[] FOOD_KEYWORDS = {
+            "fish", "cake", "bread", "pizza", "pie", "stew", "wine",
+            "potion", "brew", "food", "shark", "lobster", "salmon", "tuna",
+            "monkfish", "karambwan", "fruit", "potato", "curry", "soup"
+    };
+
+    // Valuable loot keywords
+    private static final String[] VALUABLE_KEYWORDS = {
+            "coin", "token", "nugget", "gem", "sapphire", "emerald", "ruby",
+            "diamond", "gold", "silver", "torstol", "ranarr", "snapdragon",
+            "necklace", "bracelet", "ring", "amulet", "clue scroll"
+    };
+
+    // Tracking stats
+    private int foodEaten = 0;
+    private int itemsDropped = 0;
+    private int itemsBanked = 0;
+    private long lastFoodCheck = 0;
+    private static final long FOOD_CHECK_COOLDOWN = 3000; // 3 second cooldown on food checks
 
     /**
      * Creates a new inventory manager
@@ -35,17 +64,83 @@ public class InventoryManager {
     }
 
     /**
+     * Gets the number of free inventory slots
+     *
+     * @return Number of empty slots
+     */
+    public int getFreeSlots() {
+        return Inventory.emptySlotCount();
+    }
+
+    /**
+     * Gets the item count in inventory
+     *
+     * @return Number of items in inventory
+     */
+    public int getItemCount() {
+        return Inventory.fullSlotCount();
+    }
+
+    /**
+     * Checks if we have space for at least n more items
+     *
+     * @param n Number of items to check space for
+     * @return True if there's enough space
+     */
+    public boolean hasSpaceFor(int n) {
+        return Inventory.emptySlotCount() >= n;
+    }
+
+    /**
      * Handles a full inventory based on configuration
      *
      * @return True if handled successfully, false if needs to bank
      */
     public boolean handleFullInventory() {
-        if (config.isFreestyleMode()) {
-            return dropJunkItems();
-        } else if (config.isBankingEnabled()) {
-            return false; // Signal to transition to banking state
-        } else {
-            return dropAllExceptValuable();
+        try {
+            if (config.isFreestyleMode()) {
+                return dropJunkItems();
+            } else if (config.isBankingEnabled()) {
+                return false; // Signal to transition to banking state
+            } else {
+                return dropAllExceptValuable();
+            }
+        } catch (Exception e) {
+            log("Error handling full inventory: " + e.getMessage());
+            e.printStackTrace();
+            // If there's an error, try to drop some items as a fallback
+            return emergencyDropItems();
+        }
+    }
+
+    /**
+     * Emergency method to drop some items when other methods fail
+     *
+     * @return True if some items were dropped
+     */
+    private boolean emergencyDropItems() {
+        try {
+            log("EMERGENCY: Attempting to drop some items to free space");
+            int initialCount = Inventory.fullSlotCount();
+
+            // Try to drop non-valuable items first
+            for (Item item : Inventory.all()) {
+                if (item != null && !isValuableItem(item) && !isEdibleItem(item)) {
+                    item.interact("Drop");
+                    sleep(100, 200);
+                    itemsDropped++;
+
+                    // Stop after dropping a few items
+                    if (initialCount - Inventory.fullSlotCount() >= 3) {
+                        break;
+                    }
+                }
+            }
+
+            return initialCount > Inventory.fullSlotCount();
+        } catch (Exception e) {
+            log("Even emergency drop failed: " + e.getMessage());
+            return false;
         }
     }
 
@@ -68,13 +163,27 @@ public class InventoryManager {
 
             // First deposit everything - we don't need tools for thieving
             log("Depositing all items...");
-            Bank.depositAllItems();
-            sleep(600, 900);
+            int itemsBeforeDeposit = Inventory.fullSlotCount();
 
-            // Now withdraw food based on priorities from GUI
+            if (Bank.depositAllItems()) {
+                sleep(600, 900);
+                itemsBanked += (itemsBeforeDeposit - Inventory.fullSlotCount());
+                log("Deposited " + (itemsBeforeDeposit - Inventory.fullSlotCount()) + " items");
+            } else {
+                log("Failed to deposit items");
+            }
+
+            // Check for teleport items first
+            if (!hasTeleportItem()) {
+                log("Looking for teleport items...");
+                withdrawTeleportItem();
+                sleep(300, 600);
+            }
+
+            // Now withdraw food based on priorities
             if (!withdrawFoodBasedOnPriority()) {
                 log("Failed to withdraw food");
-                return false;
+                // Continue anyway, as teleport items are more important for navigation
             }
 
             // Close the bank
@@ -82,12 +191,15 @@ public class InventoryManager {
             Bank.close();
             sleep(300, 600);
 
-            // Verify we have food
-            if (!hasFood()) {
-                log("WARNING: No food in inventory after banking");
-                // Continue anyway, maybe there's no food in bank
+            // Log what we have
+            if (hasTeleportItem() && hasFood()) {
+                log("Successfully got food and teleport items from bank");
+            } else if (hasTeleportItem()) {
+                log("Got teleport items but no food");
+            } else if (hasFood()) {
+                log("Got food but no teleport items");
             } else {
-                log("Successfully got food from bank");
+                log("WARNING: Failed to get food or teleport items");
             }
 
             return true;
@@ -149,19 +261,16 @@ public class InventoryManager {
         if (Bank.contains(item ->
                 item != null &&
                         item.getName().equalsIgnoreCase(foodName))) {
-            Bank.withdraw(foodName, amount);
-            sleep(300, 500);
-            return true;
+            return Bank.withdraw(foodName, amount);
         }
 
         // Try partial match
-        for (Item bankItem : Bank.all()) {
-            if (bankItem != null &&
-                    bankItem.getName().toLowerCase().contains(foodName.toLowerCase())) {
-                Bank.withdraw(bankItem.getName(), amount);
-                sleep(300, 500);
-                return true;
-            }
+        Item bankItem = Bank.get(item ->
+                item != null &&
+                        item.getName().toLowerCase().contains(foodName.toLowerCase()));
+
+        if (bankItem != null) {
+            return Bank.withdraw(bankItem.getName(), amount);
         }
 
         return false;
@@ -173,54 +282,23 @@ public class InventoryManager {
      * @return True if food was withdrawn
      */
     private boolean withdrawAnyFood() {
-        // Common food items to try
-        String[] commonFoods = {
-                "monkfish", "shark", "lobster", "swordfish", "tuna", "salmon",
-                "trout", "pike", "cake", "bread", "wine", "potion", "brew"
-        };
-
         // Try common foods first
-        for (String food : commonFoods) {
-            if (tryWithdrawFood(food, 10)) {
-                log("Withdrew common food: " + food);
-                return true;
-            }
-        }
+        for (String keyword : FOOD_KEYWORDS) {
+            Item foodItem = Bank.get(item ->
+                    item != null &&
+                            item.getName().toLowerCase().contains(keyword.toLowerCase()));
 
-        // Last resort: check all bank items for anything that might be food
-        log("No common food found, searching for any food-like items...");
-        for (Item item : Bank.all()) {
-            if (item != null && couldBeFood(item.getName())) {
-                Bank.withdraw(item.getName(), 10);
-                sleep(300, 500);
-                log("Withdrew possible food: " + item.getName());
-                return true;
+            if (foodItem != null) {
+                log("Found food item: " + foodItem.getName());
+                if (Bank.withdraw(foodItem.getName(), 10)) {
+                    log("Withdrew food: " + foodItem.getName());
+                    sleep(300, 500);
+                    return true;
+                }
             }
         }
 
         log("No food found in bank at all");
-        return false;
-    }
-
-    /**
-     * Check if an item name could possibly be food
-     */
-    private boolean couldBeFood(String name) {
-        if (name == null) return false;
-
-        name = name.toLowerCase();
-        String[] foodKeywords = {
-                "fish", "cake", "bread", "pizza", "pie", "stew", "wine",
-                "potion", "brew", "food", "shark", "lobster", "salmon", "tuna",
-                "monkfish", "karambwan", "fruit", "potato", "curry", "soup"
-        };
-
-        for (String keyword : foodKeywords) {
-            if (name.contains(keyword)) {
-                return true;
-            }
-        }
-
         return false;
     }
 
@@ -256,18 +334,27 @@ public class InventoryManager {
                 "krandorian seed", "wildblood seed"
         };
 
+        int itemsDroppedCount = 0;
+
         // Drop all junk seeds
         for (String seedName : junkSeeds) {
-            @NonNull List<Item> seeds = Inventory.all(item ->
-                    item != null && item.getName().toLowerCase().contains(seedName));
+            List<Item> seeds = Inventory.all(item ->
+                    item != null && item.getName().toLowerCase().contains(seedName.toLowerCase()));
 
             for (Item seed : seeds) {
-                seed.interact("Drop");
-                sleep(100, 200);
+                if (seed != null && seed.interact("Drop")) {
+                    sleep(100, 200);
+                    itemsDroppedCount++;
+                }
             }
         }
 
-        return true;
+        if (itemsDroppedCount > 0) {
+            itemsDropped += itemsDroppedCount;
+            log("Dropped " + itemsDroppedCount + " junk seeds");
+        }
+
+        return itemsDroppedCount > 0;
     }
 
     /**
@@ -295,6 +382,11 @@ public class InventoryManager {
         valuableItems.add("coin");
         config.getFoodItems().forEach(food -> valuableItems.add(food.toLowerCase()));
 
+        // Add teleport items
+        for (String teleport : TELEPORT_ITEMS) {
+            valuableItems.add(teleport.toLowerCase());
+        }
+
         // Drop items that aren't valuable
         return dropAllExcept(valuableItems);
     }
@@ -308,17 +400,17 @@ public class InventoryManager {
         List<String> valuableItems = new ArrayList<>();
 
         // Basic valuable items
-        valuableItems.add("coin");
-        valuableItems.add("gem");
-        valuableItems.add("sapphire");
-        valuableItems.add("emerald");
-        valuableItems.add("ruby");
-        valuableItems.add("diamond");
-        valuableItems.add("gold");
-        valuableItems.add("silver");
+        for (String keyword : VALUABLE_KEYWORDS) {
+            valuableItems.add(keyword.toLowerCase());
+        }
 
         // Food items
         config.getFoodItems().forEach(food -> valuableItems.add(food.toLowerCase()));
+
+        // Teleport items
+        for (String teleport : TELEPORT_ITEMS) {
+            valuableItems.add(teleport.toLowerCase());
+        }
 
         // Drop items that aren't valuable
         return dropAllExcept(valuableItems);
@@ -331,25 +423,38 @@ public class InventoryManager {
      * @return True if items were dropped
      */
     private boolean dropAllExcept(List<String> itemsToKeep) {
-        @NonNull List<Item> items = Inventory.all(item -> {
-            if (item == null) return false;
+        // Copy the inventory first to avoid modification during iteration
+        List<Item> itemsToDrop = Inventory.all().stream()
+                .filter(item -> item != null)
+                .filter(item -> {
+                    String itemName = item.getName().toLowerCase();
+                    // Check if this item contains any of the keywords we want to keep
+                    for (String keepName : itemsToKeep) {
+                        if (keepName == null) continue;
+                        if (itemName.contains(keepName.toLowerCase())) {
+                            return false; // Don't drop this item
+                        }
+                    }
+                    return true; // Drop this item
+                })
+                .collect(Collectors.toList());
 
-            String itemName = item.getName().toLowerCase();
-            for (String keepName : itemsToKeep) {
-                if (keepName == null) continue;
-                if (itemName.contains(keepName.toLowerCase())) {
-                    return false; // Don't drop this item
-                }
+        int itemsDroppedCount = 0;
+
+        // Drop items in the filtered list
+        for (Item item : itemsToDrop) {
+            if (item != null && item.interact("Drop")) {
+                sleep(100, 200);
+                itemsDroppedCount++;
             }
-            return true; // Drop this item
-        });
-
-        for (Item item : items) {
-            item.interact("Drop");
-            sleep(100, 200);
         }
 
-        return true;
+        if (itemsDroppedCount > 0) {
+            itemsDropped += itemsDroppedCount;
+            log("Dropped " + itemsDroppedCount + " items");
+        }
+
+        return itemsDroppedCount > 0;
     }
 
     /**
@@ -358,7 +463,18 @@ public class InventoryManager {
      * @return True if health is below threshold
      */
     public boolean needToHeal() {
-        return Skills.getBoostedLevel(Skill.HITPOINTS) < config.getHealthThreshold();
+        // Add a cooldown to prevent constant checking
+        if (System.currentTimeMillis() - lastFoodCheck < FOOD_CHECK_COOLDOWN) {
+            return false;
+        }
+
+        lastFoodCheck = System.currentTimeMillis();
+
+        int currentHP = Skills.getBoostedLevel(Skill.HITPOINTS);
+        int maxHP = Skills.getRealLevel(Skill.HITPOINTS);
+        int healthPercent = (int) (((double) currentHP / maxHP) * 100);
+
+        return healthPercent < config.getHealthThreshold();
     }
 
     /**
@@ -367,7 +483,12 @@ public class InventoryManager {
      * @return True if food was eaten
      */
     public boolean eatFood() {
-        // Get food items from configuration
+        // If we don't have food, don't try to eat
+        if (!hasFood()) {
+            return false;
+        }
+
+        // Try to eat configured foods first
         List<String> configuredFoods = config.getFoodItems();
 
         // First try exact matches from configuration
@@ -377,12 +498,9 @@ public class InventoryManager {
 
             if (food != null) {
                 log("Eating configured food: " + food.getName());
-                // Try different interaction methods
-                if (food.hasAction("Eat")) {
-                    return food.interact("Eat");
-                } else {
-                    // Some foods might use different action names
-                    return food.interact();
+                if (eatFoodItem(food)) {
+                    foodEaten++;
+                    return true;
                 }
             }
         }
@@ -394,40 +512,65 @@ public class InventoryManager {
 
             if (food != null) {
                 log("Eating food (partial match): " + food.getName());
-                if (food.hasAction("Eat")) {
-                    return food.interact("Eat");
-                } else {
-                    return food.interact();
+                if (eatFoodItem(food)) {
+                    foodEaten++;
+                    return true;
                 }
             }
         }
 
         // Last resort - try to find anything edible
-        Item possibleFood = Inventory.get(this::couldBeFood);
+        Item possibleFood = Inventory.get(this::isEdibleItem);
         if (possibleFood != null) {
             log("Trying to eat possible food: " + possibleFood.getName());
-            if (possibleFood.hasAction("Eat")) {
-                return possibleFood.interact("Eat");
-            } else {
-                return possibleFood.interact();
+            if (eatFoodItem(possibleFood)) {
+                foodEaten++;
+                return true;
             }
         }
 
         return false;
     }
 
-    // Helper method to check if item could be food based on name
-    private boolean couldBeFood(Item item) {
-        if (item == null) return false;
+    /**
+     * Tries to eat a specific food item with better action handling
+     *
+     * @param food The food item to eat
+     * @return True if successfully eaten
+     */
+    private boolean eatFoodItem(Item food) {
+        if (food == null) {
+            return false;
+        }
 
-        String name = item.getName().toLowerCase();
-        String[] foodKeywords = {
-                "fish", "cake", "bread", "pizza", "pie", "stew", "wine",
-                "potion", "brew", "food", "shark", "lobster", "salmon", "tuna",
-                "monkfish", "karambwan", "fruit", "potato", "curry", "soup"
-        };
+        // Try "Eat" action first
+        if (food.hasAction("Eat")) {
+            return food.interact("Eat");
+        }
 
-        for (String keyword : foodKeywords) {
+        // Try "Drink" for potions
+        if (food.hasAction("Drink")) {
+            return food.interact("Drink");
+        }
+
+        // Try "Consume" as another possibility
+        if (food.hasAction("Consume")) {
+            return food.interact("Consume");
+        }
+
+        // Last resort - try default interaction
+        return food.interact();
+    }
+
+    /**
+     * Checks if an item name could possibly be food
+     */
+    private boolean couldBeFood(String name) {
+        if (name == null) return false;
+
+        name = name.toLowerCase();
+
+        for (String keyword : FOOD_KEYWORDS) {
             if (name.contains(keyword)) {
                 return true;
             }
@@ -460,7 +603,7 @@ public class InventoryManager {
 
         // Check against configured food items first
         for (String foodName : config.getFoodItems()) {
-            if (foodName != null && name.contains(foodName)) {
+            if (foodName != null && name.contains(foodName.toLowerCase())) {
                 return true;
             }
         }
@@ -480,15 +623,124 @@ public class InventoryManager {
 
         String name = item.getName().toLowerCase();
 
-        // List of valuable items
-        String[] valuableItems = {
-                "coin", "token", "nugget", "gem", "sapphire", "emerald", "ruby",
-                "diamond", "gold", "silver", "ranarr", "snapdragon", "torstol"
-        };
-
-        for (String valuable : valuableItems) {
-            if (name.contains(valuable)) {
+        for (String valuable : VALUABLE_KEYWORDS) {
+            if (name.contains(valuable.toLowerCase())) {
                 return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Checks if player has a teleport item
+     *
+     * @return True if a teleport item is found
+     */
+    public boolean hasTeleportItem() {
+        // Check inventory
+        for (String teleport : TELEPORT_ITEMS) {
+            if (Inventory.contains(item ->
+                    item != null && item.getName().toLowerCase().contains(teleport.toLowerCase()))) {
+                return true;
+            }
+        }
+
+        // Check equipment
+        for (String teleport : TELEPORT_ITEMS) {
+            if (Equipment.contains(item ->
+                    item != null && item.getName().toLowerCase().contains(teleport.toLowerCase()))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Gets the teleport item from inventory or equipment
+     *
+     * @return The teleport item or null if not found
+     */
+    public Item getTeleportItem() {
+        // Check inventory first
+        for (String teleport : TELEPORT_ITEMS) {
+            Item item = Inventory.get(i ->
+                    i != null && i.getName().toLowerCase().contains(teleport.toLowerCase()));
+
+            if (item != null) {
+                return item;
+            }
+        }
+
+        // Then check equipment
+        for (String teleport : TELEPORT_ITEMS) {
+            Item item = Equipment.get(i ->
+                    i != null && i.getName().toLowerCase().contains(teleport.toLowerCase()));
+
+            if (item != null) {
+                return item;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Attempts to withdraw a teleport item from bank
+     *
+     * @return True if successful
+     */
+    private boolean withdrawTeleportItem() {
+        for (String teleport : TELEPORT_ITEMS) {
+            Item item = Bank.get(i ->
+                    i != null && i.getName().toLowerCase().contains(teleport.toLowerCase()));
+
+            if (item != null) {
+                log("Found teleport item: " + item.getName());
+                if (Bank.withdraw(item.getName(), 1)) {
+                    sleep(300, 500);
+                    log("Successfully withdrew " + item.getName());
+                    return true;
+                }
+            }
+        }
+
+        log("No teleport items found in bank");
+        return false;
+    }
+
+    /**
+     * Gets statistics about inventory management
+     *
+     * @return A string with stats
+     */
+    public String getStatistics() {
+        return "Food eaten: " + foodEaten +
+                ", Items dropped: " + itemsDropped +
+                ", Items banked: " + itemsBanked;
+    }
+
+    /**
+     * Handles coin pouches in inventory
+     *
+     * @param threshold The number of pouches to accumulate before opening
+     * @return True if pouches were opened
+     */
+    public boolean handleCoinPouches(int threshold) {
+        int pouchCount = Inventory.count("Coin pouch");
+
+        if (pouchCount >= threshold) {
+            log("Opening " + pouchCount + " coin pouches");
+            Item pouch = Inventory.get("Coin pouch");
+
+            if (pouch != null) {
+                // Try to open all pouches at once if possible
+                if (pouch.hasAction("Open-all")) {
+                    return pouch.interact("Open-all");
+                } else {
+                    return pouch.interact("Open");
+                }
             }
         }
 
@@ -514,5 +766,17 @@ public class InventoryManager {
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
+    }
+
+    public int getFoodEaten() {
+        return foodEaten;
+    }
+
+    public int getItemsDropped() {
+        return itemsDropped;
+    }
+
+    public int getItemsBanked() {
+        return itemsBanked;
     }
 }

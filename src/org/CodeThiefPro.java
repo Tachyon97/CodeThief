@@ -3,7 +3,6 @@ package org;
 import org.dreambot.api.Client;
 import org.dreambot.api.data.GameState;
 import org.dreambot.api.input.Mouse;
-import org.dreambot.api.methods.container.impl.Inventory;
 import org.dreambot.api.methods.interactive.GameObjects;
 import org.dreambot.api.methods.interactive.NPCs;
 import org.dreambot.api.methods.interactive.Players;
@@ -20,23 +19,24 @@ import org.dreambot.api.script.listener.PaintListener;
 import org.dreambot.api.wrappers.interactive.GameObject;
 import org.dreambot.api.wrappers.interactive.NPC;
 import org.dreambot.api.wrappers.interactive.Player;
-import org.dreambot.api.wrappers.items.Item;
 import org.dreambot.api.wrappers.widgets.message.Message;
 import org.gui.GUI;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.ArrayList;
-import java.util.List;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseListener;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @ScriptManifest(
         name = "CodeThief Pro",
         author = "Calle",
-        version = 1.1,
+        version = 1.2,
         description = "Advanced thieving script with auto-progression",
         category = Category.THIEVING
 )
-public class CodeThiefPro extends AbstractScript implements PaintListener, ChatListener {
+public class CodeThiefPro extends AbstractScript implements PaintListener, ChatListener, MouseListener {
+
     // Core components
     private ThievingState state;
     private ScriptConfiguration config;
@@ -47,20 +47,26 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
     private GUI gui;
 
     // Tracking variables
+    private int consecutiveBankWalkFailures = 0;
     private long lastThievingAttempt;
     private long lastStateChange;
     private long lastTargetSearch;
+    private long lastStatsUpdate;
     private int consecutiveFailures;
     private boolean scriptStarted;
     private Object currentTarget;
     private boolean cantReachMessageReceived;
     private int failedInteractionAttempts;
+    private final AtomicBoolean expandedPaint = new AtomicBoolean(true);
+    private Rectangle toggleButton;
+    private Rectangle toggleButtonRect;
 
     // Constants
     private static final int MAX_CONSECUTIVE_FAILURES = 3;
     private static final int COIN_POUCH_THRESHOLD = 12; // Opening threshold for coin pouches
     private static final int TARGET_REFRESH_INTERVAL = 5000; // 5 seconds between target searches
     private static final int MAX_FAILED_INTERACTIONS = 5; // Max failed interaction attempts before finding new target
+    private static final int STATS_UPDATE_INTERVAL = 2000; // 2 seconds between stats updates
 
     @Override
     public void onStart() {
@@ -73,26 +79,78 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
             configComplete[0] = false;
 
             // Wait for the GUI to be created and shown
-            SwingUtilities.invokeAndWait(() -> {
-                try {
-                    gui = new GUI(this, config);
+            try {
+                SwingUtilities.invokeAndWait(() -> {
+                    try {
+                        log("Creating GUI...");
+                        gui = new GUI(this, config);
 
-                    // Add window listener to detect when GUI is closed
-                    gui.addWindowListener(new java.awt.event.WindowAdapter() {
-                        @Override
-                        public void windowClosed(java.awt.event.WindowEvent windowEvent) {
-                            log("GUI window closed");
-                            // Only mark as complete if properly configured
-                            configComplete[0] = config.isConfigured();
+                        // Add window listener to detect when GUI is closed
+                        gui.addWindowListener(new java.awt.event.WindowAdapter() {
+                            @Override
+                            public void windowClosed(java.awt.event.WindowEvent windowEvent) {
+                                log("GUI window closed");
+                                // Only mark as complete if properly configured
+                                configComplete[0] = config.isConfigured();
+                            }
+                        });
+
+                        gui.setVisible(true);
+                        log("GUI created and shown successfully");
+                    } catch (Exception e) {
+                        log("Error creating GUI: " + e.getMessage());
+                        e.printStackTrace();
+
+                        // Create a simple fallback GUI if the main one fails
+                        try {
+                            log("Attempting to create fallback GUI...");
+                            // Simple dialog to get minimum required settings
+                            JPanel panel = new JPanel(new GridLayout(0, 1));
+
+                            JComboBox<String> targetSelector = new JComboBox<>(new String[]{
+                                    "Man", "Woman", "Farmer", "Warrior", "Guard", "Master Farmer",
+                                    "Knight of Ardougne", "Paladin", "Hero", "Tea Stall", "Cake Stall"
+                            });
+                            panel.add(new JLabel("Select target:"));
+                            panel.add(targetSelector);
+
+                            JCheckBox autoProgression = new JCheckBox("Auto-progression", true);
+                            panel.add(autoProgression);
+
+                            JCheckBox banking = new JCheckBox("Banking", true);
+                            panel.add(banking);
+
+                            int result = JOptionPane.showConfirmDialog(null, panel,
+                                    "CodeThief Pro - Basic Setup", JOptionPane.OK_CANCEL_OPTION);
+
+                            if (result == JOptionPane.OK_OPTION) {
+                                config.setCurrentTargetName((String) targetSelector.getSelectedItem());
+                                config.setAutoProgressionEnabled(autoProgression.isSelected());
+                                config.setBankingEnabled(banking.isSelected());
+                                config.setConfigured(true);
+                                configComplete[0] = true;
+                                log("Fallback configuration completed");
+                            } else {
+                                log("User canceled fallback configuration");
+                            }
+                        } catch (Exception ex) {
+                            log("Error creating fallback GUI: " + ex.getMessage());
+                            ex.printStackTrace();
                         }
-                    });
+                    }
+                });
+            } catch (Exception e) {
+                log("Error waiting for GUI: " + e.getMessage());
+                e.printStackTrace();
 
-                    gui.setVisible(true);
-                } catch (Exception e) {
-                    log("Error creating GUI: " + e.getMessage());
-                    e.printStackTrace();
-                }
-            });
+                // Last resort - use default settings without GUI
+                config.setCurrentTargetName("Man");
+                config.setAutoProgressionEnabled(true);
+                config.setBankingEnabled(true);
+                config.setConfigured(true);
+                configComplete[0] = true;
+                log("Using default settings due to GUI error");
+            }
 
             // Wait for configuration to complete with timeout
             int timeout = 0;
@@ -148,7 +206,15 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
             locationManager = new LocationManager(config);
             inventoryManager = new InventoryManager(config);
             antiBanManager = new AntiBanManager(config);
+
+            // Initialize statistics tracker
             statsTracker = new StatisticsTracker();
+
+            // Register mouse listener for paint
+            Canvas canvas = Client.getCanvas();
+            if (canvas != null) {
+                canvas.addMouseListener(this);
+            }
 
             // Initialize skill tracker
             SkillTracker.start(Skill.THIEVING);
@@ -163,6 +229,7 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
             lastThievingAttempt = System.currentTimeMillis();
             lastStateChange = System.currentTimeMillis();
             lastTargetSearch = 0;
+            lastStatsUpdate = 0;
             consecutiveFailures = 0;
             scriptStarted = true;
             currentTarget = null;
@@ -193,6 +260,12 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
 
             // Anti-ban random checks
             antiBanManager.performRandomChecks();
+
+            // Update stats periodically
+            if (System.currentTimeMillis() - lastStatsUpdate > STATS_UPDATE_INTERVAL) {
+                updateStatistics();
+                lastStatsUpdate = System.currentTimeMillis();
+            }
 
             // Execute current state
             switch (state) {
@@ -358,7 +431,7 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
         }
 
         // Check for coin pouches first
-        if (handleCoinPouches()) {
+        if (inventoryManager.handleCoinPouches(COIN_POUCH_THRESHOLD)) {
             return 600; // Wait a moment after opening pouches
         }
 
@@ -386,28 +459,6 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
         // We're in the right area but no target found, wait for respawn
         log("Waiting for target to appear");
         return 1000;
-    }
-
-    /**
-     * Handles coin pouches in inventory
-     *
-     * @return True if pouches were opened
-     */
-    private boolean handleCoinPouches() {
-        int pouchCount = Inventory.count("Coin pouch");
-        if (pouchCount >= COIN_POUCH_THRESHOLD) {
-            log("Opening " + pouchCount + " coin pouches");
-            Item pouch = Inventory.get("Coin pouch");
-            if (pouch != null) {
-                // Try to open all pouches at once if possible
-                if (pouch.hasAction("Open-all")) {
-                    return pouch.interact("Open-all");
-                } else {
-                    return pouch.interact("Open");
-                }
-            }
-        }
-        return false;
     }
 
     /**
@@ -440,6 +491,7 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
 
     /**
      * Finds a thieving target based on current configuration
+     * Improved to use the best NPC targeting methods
      *
      * @return NPC or GameObject to thieve from
      */
@@ -447,7 +499,7 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
         lastTargetSearch = System.currentTimeMillis();
         String targetName = config.getCurrentTargetName();
 
-        System.out.println("[CodeThiefPro] Searching for target: " + targetName);
+        log("Searching for target: " + targetName);
 
         // Specialized handling for Tea and Cake stalls
         if (targetName.equals("Tea Stall") || targetName.equals("Cake Stall")) {
@@ -456,7 +508,8 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
                             obj.hasAction("Steal-from"));
 
             if (stall != null) {
-                System.out.println("[CodeThiefPro] Found " + targetName + " at " + stall.getTile() + ", distance: " + stall.distance());
+                log("Found " + targetName + " at " + stall.getTile() + ", distance: " + stall.distance());
+
                 // For Tea Stall, ensure we're at the right location (the safespot)
                 if (targetName.equals("Tea Stall")) {
                     Player player = Players.getLocal();
@@ -464,172 +517,63 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
 
                     // If we're not at the safespot, we need to get there first
                     if (player.distance(teaStallSafespot) > 3) {
-                        System.out.println("[CodeThiefPro] Not at Tea Stall safespot yet. Need to walk there first.");
+                        log("Not at Tea Stall safespot yet. Need to walk there first.");
                         return null; // This will trigger walkToLocation
                     }
                 }
                 return stall;
             } else {
-                System.out.println("[CodeThiefPro] Could not find " + targetName);
+                log("Could not find " + targetName);
             }
             return null;
         }
-        // Other non-stall thieving methods
-        else if (!targetName.toLowerCase().contains("stall")) {
-            // Handle NPC pickpocketing or other methods
-            return findNPC(targetName);
-        }
+        // NPC targets - improved targeting
+        else {
+            // Use NPCs.closest for efficient targeting
+            NPC target = NPCs.closest(npc ->
+                    npc != null &&
+                            npc.getName().equals(targetName) &&
+                            !npc.isInCombat() &&
+                            npc.hasAction("Pickpocket") &&
+                            npc.getInteractingCharacter() == null &&
+                            npc.exists() &&
+                            npc.canReach());
 
-        return null;
-    }
-
-    /**
-     * Finds an NPC to pickpocket with reachability check
-     *
-     * @param targetName The NPC name
-     * @return The closest valid and reachable NPC
-     */
-    private NPC findNPC(String targetName) {
-        // First try to find a reachable NPC
-        List<NPC> reachableNPCs = new ArrayList<>();
-
-        // Get all matching NPCs
-        List<NPC> allNPCs = NPCs.all(npc ->
-                npc.getName().equals(targetName) &&
-                        !npc.isInCombat() &&
-                        npc.hasAction("Pickpocket") &&
-                        npc.getInteractingCharacter() == null &&
-                        npc.exists());
-
-        // Filter for reachable ones and sort by distance
-        for (NPC npc : allNPCs) {
-            if (npc.canReach()) {
-                reachableNPCs.add(npc);
+            if (target != null) {
+                log("Found reachable " + targetName + " at distance " + String.format("%.1f", target.distance()));
+                return target;
             }
-        }
 
-        // Sort by distance
-        reachableNPCs.sort((npc1, npc2) ->
-                (int) (npc1.distance() - npc2.distance()));
+            // If no reachable NPC, check if there are any visible ones
+            NPC visibleTarget = NPCs.closest(npc ->
+                    npc != null &&
+                            npc.getName().equals(targetName) &&
+                            !npc.isInCombat() &&
+                            npc.hasAction("Pickpocket") &&
+                            npc.getInteractingCharacter() == null &&
+                            npc.exists());
 
-        // Get closest reachable NPC
-        if (!reachableNPCs.isEmpty()) {
-            NPC closestReachable = reachableNPCs.get(0);
-            log("Found reachable " + targetName + " at distance " + String.format("%.1f", closestReachable.distance()));
-            return closestReachable;
-        }
+            if (visibleTarget != null) {
+                log("Found " + targetName + " but can't reach it. Distance: " +
+                        String.format("%.1f", visibleTarget.distance()));
 
-        // Log that we found NPCs but none are reachable
-        if (!allNPCs.isEmpty()) {
-            log("Found " + allNPCs.size() + " " + targetName + "(s) but none are reachable. Try repositioning.");
-        }
+                // Try to walk closer if possible
+                Tile targetTile = visibleTarget.getTile();
+                if (Walking.canWalk(targetTile)) {
+                    log("Walking closer to target");
+                    Walking.walk(targetTile);
+                    sleep(800, 1200);
 
-        return null;
-    }
-
-    /**
-     * Finds a stall to steal from with reachability check
-     *
-     * @param stallName The stall name
-     * @return The closest valid and reachable stall
-     */
-    private GameObject findStallObject(String stallName) {
-        List<GameObject> reachableStalls = new ArrayList<>();
-
-        // Get all matching stalls
-        List<GameObject> allStalls = GameObjects.all(obj ->
-                obj.getName().equals(stallName) &&
-                        obj.hasAction("Steal-from") &&
-                        obj.exists());
-
-        // Filter for reachable ones and sort by distance
-        for (GameObject obj : allStalls) {
-            if (obj.canReach()) {
-                reachableStalls.add(obj);
+                    // Check if now reachable
+                    if (visibleTarget.canReach()) {
+                        return visibleTarget;
+                    }
+                }
             }
+
+            log("No reachable " + targetName + " found.");
+            return null;
         }
-
-        // Sort by distance
-        reachableStalls.sort((obj1, obj2) ->
-                (int) (obj1.distance() - obj2.distance()));
-
-        // Get closest reachable stall
-        if (!reachableStalls.isEmpty()) {
-            return reachableStalls.get(0);
-        }
-
-        // Log that we found stalls but none are reachable
-        if (!allStalls.isEmpty()) {
-            log("Found " + allStalls.size() + " " + stallName + "(s) but none are reachable. Try repositioning.");
-        }
-
-        return null;
-    }
-
-    /**
-     * Finds a chest to open with reachability check
-     *
-     * @return The closest valid and reachable chest
-     */
-    private GameObject findChest() {
-        List<GameObject> reachableChests = new ArrayList<>();
-
-        // Get all matching chests
-        List<GameObject> allChests = GameObjects.all(obj ->
-                obj.getName().toLowerCase().contains("chest") &&
-                        obj.hasAction("Open") &&
-                        obj.exists());
-
-        // Filter for reachable ones and sort by distance
-        for (GameObject obj : allChests) {
-            if (obj.canReach()) {
-                reachableChests.add(obj);
-            }
-        }
-
-        // Sort by distance
-        reachableChests.sort((obj1, obj2) ->
-                (int) (obj1.distance() - obj2.distance()));
-
-        // Get closest reachable chest
-        if (!reachableChests.isEmpty()) {
-            return reachableChests.get(0);
-        }
-
-        return null;
-    }
-
-    /**
-     * Finds a wall safe to crack with reachability check
-     *
-     * @return The closest valid and reachable wall safe
-     */
-    private GameObject findWallSafe() {
-        List<GameObject> reachableSafes = new ArrayList<>();
-
-        // Get all matching safes
-        List<GameObject> allSafes = GameObjects.all(obj ->
-                obj.getName().toLowerCase().contains("wall safe") &&
-                        obj.hasAction("Crack") &&
-                        obj.exists());
-
-        // Filter for reachable ones and sort by distance
-        for (GameObject obj : allSafes) {
-            if (obj.canReach()) {
-                reachableSafes.add(obj);
-            }
-        }
-
-        // Sort by distance
-        reachableSafes.sort((obj1, obj2) ->
-                (int) (obj1.distance() - obj2.distance()));
-
-        // Get closest reachable safe
-        if (!reachableSafes.isEmpty()) {
-            return reachableSafes.get(0);
-        }
-
-        return null;
     }
 
     /**
@@ -645,7 +589,7 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
         }
 
         // Check if NPC is valid and reachable
-        if ((npc == null || !npc.exists() || npc.isInCombat() || !npc.canReach() && npc.distance() < 5)) {
+        if ((npc == null || !npc.exists() || npc.isInCombat() || !npc.canReach())) {
             if (npc != null) {
                 if (!npc.canReach()) {
                     log("Target " + npc.getName() + " is not reachable. Finding new target.");
@@ -671,30 +615,24 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
         }
 
         // Attempt to pickpocket
-        if (npc.distance() < 8) {
-            if (npc.interact("Pickpocket")) {
-                log("Pickpocketing " + npc.getName());
-                lastThievingAttempt = System.currentTimeMillis();
+        if (npc.interact("Pickpocket")) {
+            log("Pickpocketing " + npc.getName());
+            lastThievingAttempt = System.currentTimeMillis();
 
-                // Wait for pickpocketing animation
-                sleep(600, 1200);
+            // Wait for pickpocketing animation
+            sleep(600, 1200);
+            return 300;
+        } else {
+            failedInteractionAttempts++;
+            log("Failed to interact with " + npc.getName() + " (Attempt " + failedInteractionAttempts + ")");
 
-                // Check for failure or success - now handled in onMessage
-
-                return 300;
-            } else {
-                failedInteractionAttempts++;
-                log("Failed to interact with " + npc.getName() + " (Attempt " + failedInteractionAttempts + ")");
-                if (failedInteractionAttempts >= MAX_FAILED_INTERACTIONS) {
-                    log("Too many failed interaction attempts. Finding new target.");
-                    //    currentTarget = null;
-                    //    failedInteractionAttempts = 0;
-                }
+            if (failedInteractionAttempts >= MAX_FAILED_INTERACTIONS) {
+                log("Too many failed interaction attempts. Finding new target.");
+                currentTarget = null;
+                failedInteractionAttempts = 0;
             }
+            return 600;
         }
-
-
-        return 600;
     }
 
     /**
@@ -817,15 +755,38 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
      * @return Sleep time in ms
      */
     private int handleWalkingToBank() {
-        if (locationManager.isAtBank()) {
-            setState(ThievingState.BANKING);
-            return 300;
-        }
+        try {
+            // Check if already at bank
+            if (locationManager.isAtBank()) {
+                setState(ThievingState.BANKING);
+                return 300;
+            }
 
-        if (locationManager.walkToBank()) {
-            return 1000;
-        } else {
-            log("Failed to walk to bank");
+            // Try to get teleport items first if we need them
+            if (inventoryManager.hasTeleportItem()) {
+                log("Using teleport to get to bank");
+            } else {
+                log("No teleport items available, using walking paths");
+            }
+
+            // Attempt to walk to bank
+            if (locationManager.walkToBank()) {
+                consecutiveBankWalkFailures = 0;
+                return 1000;
+            } else {
+                // Handle failure
+                if (consecutiveBankWalkFailures >= 3) {
+                    log("Multiple bank walk failures. Moving to ERROR state.");
+                    setState(ThievingState.ERROR);
+                } else {
+                    consecutiveBankWalkFailures++;
+                    log("Failed to walk to bank (Attempt " + consecutiveBankWalkFailures + ")");
+                }
+                return 1000;
+            }
+        } catch (Exception e) {
+            log("Error in handleWalkingToBank: " + e.getMessage());
+            e.printStackTrace();
             setState(ThievingState.ERROR);
             return 1000;
         }
@@ -930,26 +891,17 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
     }
 
     /**
-     * Checks if the player is stunned
-     *
-     * @return True if stunned
+     * Updates statistics from inventory manager
      */
-    private boolean isPlayerStunned() {
-        // Simple check for stunned animation
-        Player local = Players.getLocal();
-        int animationId = local.getAnimation();
-
-        // Common stun animation IDs (may need to be updated)
-        return animationId == 422 || animationId == 836;
-    }
-
-    /**
-     * Checks if the player is in combat
-     *
-     * @return True if in combat
-     */
-    private boolean isInCombat() {
-        return Players.getLocal().isInCombat();
+    private void updateStatistics() {
+        if (statsTracker != null && inventoryManager != null) {
+            // Get stats from inventory manager if available
+            statsTracker.updateInventoryStats(
+                    inventoryManager.getFoodEaten(),
+                    inventoryManager.getItemsDropped(),
+                    inventoryManager.getItemsBanked()
+            );
+        }
     }
 
     /**
@@ -961,7 +913,9 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
         if (state != newState) {
             log("State changed: " + state + " -> " + newState);
             state = newState;
-            statsTracker.setCurrentState(newState);
+            if (statsTracker != null) {
+                statsTracker.setCurrentState(newState);
+            }
             lastStateChange = System.currentTimeMillis();
         }
     }
@@ -982,9 +936,9 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
 
     @Override
     public void onPaint(Graphics graphics) {
-        // Add debugging for paint issues
         try {
             if (statsTracker != null) {
+                // Let the statistics tracker handle all paint drawing
                 statsTracker.drawPaint((Graphics2D) graphics);
             } else {
                 // Draw a simple indicator if statsTracker isn't initialized
@@ -1019,12 +973,54 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
     public void onExit() {
         // Clean up resources
         log("Script stopped. Final stats:");
-        log("XP Gained: " + statsTracker.getXpGained());
-        log("Success Rate: " + String.format("%.1f%%", statsTracker.getSuccessRate()));
+        if (statsTracker != null) {
+            log("XP Gained: " + statsTracker.getXpGained());
+            log("Success Rate: " + String.format("%.1f%%", statsTracker.getSuccessRate() * 100));
+        }
+
+        // Remove mouse listener
+        Canvas canvas = Client.getCanvas();
+        if (canvas != null) {
+            canvas.removeMouseListener(this);
+        }
 
         // Close GUI if open
         if (gui != null && gui.isVisible()) {
             gui.dispose();
         }
+    }
+
+    // MouseListener implementation for paint interaction
+
+    @Override
+    public void mouseClicked(MouseEvent e) {
+        try {
+            // Check if click is on toggle button in statsTracker
+            if (statsTracker != null && statsTracker.isOverToggleButton(e.getPoint())) {
+                statsTracker.toggleExpandedPaint();
+            }
+        } catch (Exception ex) {
+            log("Error in mouseClicked: " + ex.getMessage());
+        }
+    }
+
+    @Override
+    public void mousePressed(MouseEvent e) {
+        // Not needed
+    }
+
+    @Override
+    public void mouseReleased(MouseEvent e) {
+        // Not needed
+    }
+
+    @Override
+    public void mouseEntered(MouseEvent e) {
+        // Not needed
+    }
+
+    @Override
+    public void mouseExited(MouseEvent e) {
+        // Not needed
     }
 }
