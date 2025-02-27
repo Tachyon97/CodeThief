@@ -1,50 +1,36 @@
 package org.gui.panels;
 
-import org.ScriptConfiguration;
+import org.core.config.ScriptConfiguration;
 import org.gui.util.GUIUtils;
 import org.gui.util.StyleFactory;
 
 import javax.swing.*;
 import java.awt.*;
 
-/**
- * Panel for anti-ban settings
- */
 public class AntiBanPanel extends JPanel {
     private final ScriptConfiguration config;
     private final String currentUsername;
 
-    // GUI components
     private JCheckBox antiBanEnabledCheckbox;
     private JSlider antiBanIntensitySlider;
     private JTextArea antiBanProfileText;
     private JLabel intensityValueLabel;
 
-    /**
-     * Creates a new anti-ban panel
-     *
-     * @param config   The script configuration
-     * @param username The current player username
-     */
     public AntiBanPanel(ScriptConfiguration config, String username) {
         this.config = config;
         this.currentUsername = username;
 
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
         setBackground(StyleFactory.BG_DARK_COLOR);
-        setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
+        setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
         initializeComponents();
     }
 
-    /**
-     * Initializes all panel components
-     */
     private void initializeComponents() {
-        // Add header with explanation
         JPanel headerPanel = new JPanel(new BorderLayout());
         headerPanel.setBackground(StyleFactory.BG_MEDIUM_COLOR);
-        headerPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        headerPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
         JLabel titleLabel = GUIUtils.createStyledLabel("Anti-Ban Settings");
         titleLabel.setFont(StyleFactory.HEADER_FONT);
@@ -57,14 +43,12 @@ public class AntiBanPanel extends JPanel {
         headerPanel.add(titleLabel, BorderLayout.NORTH);
         headerPanel.add(descLabel, BorderLayout.CENTER);
         add(headerPanel);
-        add(Box.createVerticalStrut(15));
+        add(Box.createVerticalStrut(10));
 
-        // Main anti-ban settings panel
         JPanel antiBanSettingsPanel = createAntiBanSettingsPanel();
         add(antiBanSettingsPanel);
-        add(Box.createVerticalStrut(15));
+        add(Box.createVerticalStrut(10));
 
-        // Add anti-ban explanation
         JPanel explanationPanel = new JPanel(new BorderLayout());
         explanationPanel.setBackground(StyleFactory.BG_MEDIUM_COLOR);
         explanationPanel.setBorder(BorderFactory.createLineBorder(StyleFactory.BORDER_COLOR));
@@ -79,24 +63,22 @@ public class AntiBanPanel extends JPanel {
         explanationText.setLineWrap(true);
         explanationText.setWrapStyleWord(true);
         explanationText.setEditable(false);
-        explanationText.setBorder(BorderFactory.createEmptyBorder(10, 10, 5, 10));
+        explanationText.setBorder(BorderFactory.createEmptyBorder(8, 8, 5, 8));
 
         JLabel subLabel = GUIUtils.createStyledSubtextLabel(
                 "Higher intensity = more human-like but possibly lower XP rates"
         );
-        subLabel.setBorder(BorderFactory.createEmptyBorder(0, 10, 10, 10));
+        subLabel.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
 
         explanationPanel.add(explanationText, BorderLayout.CENTER);
         explanationPanel.add(subLabel, BorderLayout.SOUTH);
         add(explanationPanel);
-        add(Box.createVerticalStrut(15));
-
-        // Add profile preview area
-        JPanel profilePanel = createProfilePreviewPanel();
-        add(profilePanel);
         add(Box.createVerticalStrut(10));
 
-        // Add regenerate button
+        JPanel profilePanel = createProfilePreviewPanel();
+        add(profilePanel);
+        add(Box.createVerticalStrut(8));
+
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
         buttonPanel.setBackground(StyleFactory.BG_DARK_COLOR);
 
@@ -109,24 +91,17 @@ public class AntiBanPanel extends JPanel {
         add(buttonPanel);
         add(Box.createVerticalGlue());
 
-        // Setup action listeners
         setupActionListeners();
-
-        // Initialize profile display
         updateAntiBanProfileDisplay();
     }
 
-    /**
-     * Creates the anti-ban settings panel
-     */
     private JPanel createAntiBanSettingsPanel() {
         JPanel antiBanSettingsPanel = GUIUtils.createSectionPanel("Anti-Ban Configuration");
         antiBanSettingsPanel.setLayout(new GridBagLayout());
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(8, 10, 8, 10);
+        gbc.insets = new Insets(5, 8, 5, 8);
 
-        // Add enable anti-ban checkbox
         gbc.gridx = 0;
         gbc.gridy = 0;
         gbc.gridwidth = 1;
@@ -140,7 +115,6 @@ public class AntiBanPanel extends JPanel {
         antiBanEnabledCheckbox.setToolTipText("Recommended: ON - Makes the script behave more like a human player");
         antiBanSettingsPanel.add(antiBanEnabledCheckbox, gbc);
 
-        // Add anti-ban intensity slider
         gbc.gridx = 0;
         gbc.gridy = 1;
         JLabel intensityLabel = GUIUtils.createStyledLabel("Anti-Ban Intensity:");
@@ -155,7 +129,6 @@ public class AntiBanPanel extends JPanel {
         antiBanIntensitySlider.setPaintLabels(true);
         antiBanIntensitySlider.setToolTipText("Higher values make behavior more human-like but may reduce efficiency");
 
-        // Add live value display
         JPanel intensityPanel = new JPanel(new BorderLayout(5, 0));
         intensityPanel.setBackground(StyleFactory.BG_MEDIUM_COLOR);
 
@@ -166,7 +139,7 @@ public class AntiBanPanel extends JPanel {
         antiBanIntensitySlider.addChangeListener(e -> {
             JSlider source = (JSlider) e.getSource();
             intensityValueLabel.setText(source.getValue() + "%");
-            updateAntiBanProfileDisplay(); // Update the profile display when slider changes
+            updateAntiBanProfileDisplay();
         });
 
         intensityPanel.add(antiBanIntensitySlider, BorderLayout.CENTER);
@@ -175,7 +148,6 @@ public class AntiBanPanel extends JPanel {
         gbc.gridx = 1;
         antiBanSettingsPanel.add(intensityPanel, gbc);
 
-        // Add account-specific profile note
         gbc.gridx = 0;
         gbc.gridy = 2;
         gbc.gridwidth = 2;
@@ -188,9 +160,6 @@ public class AntiBanPanel extends JPanel {
         return antiBanSettingsPanel;
     }
 
-    /**
-     * Creates the profile preview panel
-     */
     private JPanel createProfilePreviewPanel() {
         JPanel profilePanel = GUIUtils.createSectionPanel("Profile Preview");
         profilePanel.setLayout(new BorderLayout());
@@ -208,15 +177,24 @@ public class AntiBanPanel extends JPanel {
         return profilePanel;
     }
 
-    /**
-     * Setup action listeners for component interactions
-     */
+    public void applySettings() {
+        // Apply settings to UI components
+        antiBanEnabledCheckbox.setSelected(config.isAntiBanEnabled());
+        antiBanIntensitySlider.setValue(config.getAntiBanIntensity());
+        intensityValueLabel.setText(config.getAntiBanIntensity() + "%");
+
+        // Update the display after setting values
+        updateAntiBanProfileDisplay();
+
+        System.out.println("[AntiBanPanel] Applied settings: enabled=" + config.isAntiBanEnabled() +
+                ", intensity=" + config.getAntiBanIntensity());
+    }
+
     private void setupActionListeners() {
         antiBanEnabledCheckbox.addActionListener(e -> {
             boolean enabled = antiBanEnabledCheckbox.isSelected();
             antiBanIntensitySlider.setEnabled(enabled);
 
-            // Find and update intensity label
             Component[] components = getComponents();
             for (Component component : components) {
                 if (component instanceof JPanel) {
@@ -230,9 +208,6 @@ public class AntiBanPanel extends JPanel {
         });
     }
 
-    /**
-     * Helper method to find and update labels in panels
-     */
     private void findAndUpdateLabels(JPanel panel, boolean enabled) {
         Component[] components = panel.getComponents();
         for (Component component : components) {
@@ -249,9 +224,6 @@ public class AntiBanPanel extends JPanel {
         }
     }
 
-    /**
-     * Updates the anti-ban profile preview display
-     */
     private void updateAntiBanProfileDisplay() {
         if (!antiBanEnabledCheckbox.isSelected()) {
             antiBanProfileText.setText("Anti-Ban is disabled. No profile will be used.");
@@ -260,32 +232,27 @@ public class AntiBanPanel extends JPanel {
 
         int intensity = antiBanIntensitySlider.getValue();
 
-        // Generate a preview of what the profile would look like
         StringBuilder preview = new StringBuilder();
         preview.append("Anti-Ban Profile for: ").append(currentUsername).append("\n");
 
-        // Calculate values based on intensity
         double baseRotation = 0.15 + (intensity / 200.0);
         double baseSkill = 0.05 + (intensity / 400.0);
         double baseBreak = 0.02 + (intensity / 500.0);
         double baseMouse = 0.10 + (intensity / 250.0);
         double baseMisclick = 0.02 + (intensity / 600.0);
 
-        // Add some randomness to make it look authentic
         double rotationJitter = Math.random() * 0.03 - 0.015;
         double skillJitter = Math.random() * 0.02 - 0.01;
         double breakJitter = Math.random() * 0.01 - 0.005;
         double mouseJitter = Math.random() * 0.03 - 0.015;
         double misclickJitter = Math.random() * 0.01 - 0.005;
 
-        // Format the values
         preview.append("Camera Rotation: ").append(String.format("%.1f%%", (baseRotation + rotationJitter) * 100)).append("\n");
         preview.append("Skill Checking: ").append(String.format("%.1f%%", (baseSkill + skillJitter) * 100)).append("\n");
         preview.append("Break Frequency: ").append(String.format("%.1f%%", (baseBreak + breakJitter) * 100)).append("\n");
         preview.append("Mouse Movement: ").append(String.format("%.1f%%", (baseMouse + mouseJitter) * 100)).append("\n");
         preview.append("Misclick Rate: ").append(String.format("%.1f%%", (baseMisclick + misclickJitter) * 100)).append("\n");
 
-        // Add behavior style notes
         int styleIndex = Math.abs(currentUsername.hashCode() % 4);
         String[] rotationStyles = {"Full 360°", "90° Preference", "Limited Range", "Micro-Adjustments"};
         String[] mouseStyles = {"Natural Circular", "Grid Pattern", "Rectangle Pattern", "Small Jittery"};
@@ -299,11 +266,7 @@ public class AntiBanPanel extends JPanel {
         antiBanProfileText.setText(preview.toString());
     }
 
-    /**
-     * Simulates regenerating a profile and updates the display
-     */
     private void regenerateProfile() {
-        // Simply update the display with new random values
         updateAntiBanProfileDisplay();
 
         JOptionPane.showMessageDialog(this,
@@ -313,9 +276,6 @@ public class AntiBanPanel extends JPanel {
                 JOptionPane.INFORMATION_MESSAGE);
     }
 
-    /**
-     * Saves panel settings to the configuration object
-     */
     public void saveSettings() {
         config.setAntiBanEnabled(antiBanEnabledCheckbox.isSelected());
         config.setAntiBanIntensity(antiBanIntensitySlider.getValue());

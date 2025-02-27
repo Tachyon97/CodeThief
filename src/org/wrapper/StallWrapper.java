@@ -1,4 +1,4 @@
-package org;
+package org.wrapper;
 
 import org.dreambot.api.wrappers.interactive.GameObject;
 import org.dreambot.api.wrappers.interactive.NPC;

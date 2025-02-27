@@ -1,4 +1,4 @@
-package org;
+package org.core.config;
 
 /**
  * Represents all possible states for the thieving script.
@@ -11,6 +11,5 @@ public enum ThievingState {
     WALKING_TO_BANK,
     BANKING,
     HANDLING_HEALTH,
-    ROGUES_DEN,
     ERROR
 }

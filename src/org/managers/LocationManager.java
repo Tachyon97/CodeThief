@@ -1,5 +1,6 @@
-package org;
+package org.managers;
 
+import org.core.config.ScriptConfiguration;
 import org.dreambot.api.methods.container.impl.Inventory;
 import org.dreambot.api.methods.container.impl.bank.Bank;
 import org.dreambot.api.methods.container.impl.equipment.Equipment;
@@ -18,27 +19,20 @@ import org.dreambot.api.wrappers.items.Item;
 
 import java.util.*;
 
-/**
- * Manages thieving locations and walking paths for the script.
- * Optimized for teleport handling and robust bank navigation.
- */
 public class LocationManager {
     private final Map<String, Area> thievingAreas;
     private final Map<String, Area> bankAreas;
     private final ScriptConfiguration config;
 
-    // Special safespot coordinates for Tea Stall
     private final Tile TEA_STALL_SAFESPOT = new Tile(3268, 3410, 0);
 
-    // Location tracking
     private long lastWalkAttempt;
     private int failedWalkAttempts;
     private Tile lastWalkableTile;
     private int consecutiveBankFailures = 0;
     private long lastTeleportAttempt = 0;
-    private static final long TELEPORT_COOLDOWN = 60000; // 1 minute cooldown on teleport attempts
+    private static final long TELEPORT_COOLDOWN = 60000;
 
-    // Teleport items with their respective options
     private static final Map<String, List<TeleportOption>> TELEPORT_ITEMS = new HashMap<>();
 
     static {
@@ -74,13 +68,26 @@ public class LocationManager {
         skillsOptions.add(new TeleportOption("Woodcutting Guild", 5, new Tile(1662, 3505, 0)));
         skillsOptions.add(new TeleportOption("Farming Guild", 6, new Tile(1249, 3719, 0)));
         TELEPORT_ITEMS.put("Skills necklace", skillsOptions);
+
+        // Ardougne teleport
+        List<TeleportOption> ardyOptions = new ArrayList<>();
+        ardyOptions.add(new TeleportOption("Ardougne", 1, new Tile(2661, 3307, 0)));
+        TELEPORT_ITEMS.put("Ardougne teleport", ardyOptions);
+
+        // Combat bracelet
+        List<TeleportOption> combatOptions = new ArrayList<>();
+        combatOptions.add(new TeleportOption("Warriors' Guild", 1, new Tile(2878, 3546, 0)));
+        combatOptions.add(new TeleportOption("Champions' Guild", 2, new Tile(3191, 3368, 0)));
+        combatOptions.add(new TeleportOption("Monastery", 3, new Tile(3053, 3487, 0)));
+        combatOptions.add(new TeleportOption("Ranging Guild", 4, new Tile(2654, 3442, 0)));
+        TELEPORT_ITEMS.put("Combat bracelet", combatOptions);
+
+        // Ardougne cloak
+        List<TeleportOption> cloakOptions = new ArrayList<>();
+        cloakOptions.add(new TeleportOption("Ardougne", 1, new Tile(2634, 3348, 0)));
+        TELEPORT_ITEMS.put("Ardougne cloak", cloakOptions);
     }
 
-    /**
-     * Creates a new location manager
-     *
-     * @param config The script configuration
-     */
     public LocationManager(ScriptConfiguration config) {
         this.config = config;
         this.thievingAreas = initializeThievingAreas();
@@ -90,34 +97,22 @@ public class LocationManager {
         this.lastWalkableTile = null;
     }
 
-    /**
-     * Gets the thieving area for the current target
-     *
-     * @return Area object for the current target
-     */
     public Area getCurrentThievingArea() {
         String targetName = config.getCurrentTargetName();
         return thievingAreas.getOrDefault(targetName, null);
     }
 
-    /**
-     * Gets the nearest bank area to the current thieving location
-     *
-     * @return The nearest bank area
-     */
     public Area getNearestBankArea() {
         Area currentArea = getCurrentThievingArea();
         if (currentArea == null) {
             return bankAreas.get("Default");
         }
 
-        // Find closest bank to current area
         String closestBankName = null;
         double closestDistance = Double.MAX_VALUE;
 
         for (Map.Entry<String, Area> entry : bankAreas.entrySet()) {
             double distance = currentArea.getCenter().distance(entry.getValue().getCenter());
-            // Add a small random factor to avoid comparison issues when distances are equal
             distance += Math.random() * 0.001;
 
             if (distance < closestDistance) {
@@ -129,11 +124,6 @@ public class LocationManager {
         return bankAreas.get(closestBankName != null ? closestBankName : "Default");
     }
 
-    /**
-     * Walks to the current thieving area
-     *
-     * @return True if already at the area or successfully walking to it
-     */
     public boolean walkToThievingArea() {
         String targetName = config.getCurrentTargetName();
         Area area = getCurrentThievingArea();
@@ -145,20 +135,19 @@ public class LocationManager {
 
         Player localPlayer = Players.getLocal();
 
-        // Special case for Tea Stall - walk to the specific safespot
+        // Special case for Tea Stall
         if (targetName.equals("Tea Stall")) {
             if (localPlayer.distance(TEA_STALL_SAFESPOT) <= 3) {
-                return true; // Already at tea stall safespot
+                return true;
             }
 
             System.out.println("[LocationManager] Walking to Tea Stall safespot: " + TEA_STALL_SAFESPOT);
-            // Try to walk exactly to the safespot for precision
             return Walking.walkExact(TEA_STALL_SAFESPOT);
         }
 
         // Normal handling for other targets
         if (area.contains(localPlayer)) {
-            return true; // Already in the right area
+            return true;
         }
 
         // Check for teleport if far away
@@ -177,7 +166,6 @@ public class LocationManager {
 
         // Check if we're stuck
         if (isPlayerStuck()) {
-            // Try a different tile if we're stuck
             destination = findAlternativeWalkableTile(area);
             System.out.println("[LocationManager] Possibly stuck, trying alternative tile: " + destination);
         }
@@ -188,7 +176,6 @@ public class LocationManager {
                 Walking.toggleRun();
             }
 
-            // Walk to the destination - this uses web/local pathfinding as needed
             boolean walkResult = Walking.walk(destination);
 
             if (!walkResult) {
@@ -206,24 +193,16 @@ public class LocationManager {
         }
     }
 
-    /**
-     * Determines if the player appears to be stuck
-     *
-     * @return True if player seems stuck
-     */
     private boolean isPlayerStuck() {
-        // If we've had multiple failed walk attempts
         if (failedWalkAttempts >= 3) {
             return true;
         }
 
-        // If we've been trying to walk for a long time
         long walkTime = System.currentTimeMillis() - lastWalkAttempt;
-        if (walkTime > 10000 && failedWalkAttempts > 0) { // 10 seconds
+        if (walkTime > 10000 && failedWalkAttempts > 0) {
             return true;
         }
 
-        // If we haven't moved in a while and have a destination
         Tile destination = Walking.getDestination();
         if (destination != null) {
             Player local = Players.getLocal();
@@ -235,35 +214,23 @@ public class LocationManager {
         return false;
     }
 
-    /**
-     * Finds an alternative tile to walk to when stuck
-     *
-     * @param area The target area
-     * @return An alternative tile to try
-     */
     private Tile findAlternativeWalkableTile(Area area) {
-        // Get current player position
         Player localPlayer = Players.getLocal();
         Tile playerTile = localPlayer.getTile();
 
-        // Create list for reachable tiles
         List<Tile> reachableTiles = new ArrayList<>();
 
-        // Check each tile in the area to find reachable ones
         for (Tile tile : area.getTiles()) {
-            // Use walking API to check if we can walk to it
             if (Walking.canWalk(tile)) {
                 reachableTiles.add(tile);
             }
         }
 
-        // If no reachable tiles, try to find any walkable tile in the general direction
         if (reachableTiles.isEmpty()) {
             Tile areaCenter = area.getCenter();
             int dx = areaCenter.getX() - playerTile.getX();
             int dy = areaCenter.getY() - playerTile.getY();
 
-            // Create a tile that's a few steps in the general direction
             int stepSize = 5;
             int stepX = dx > 0 ? stepSize : (dx < 0 ? -stepSize : 0);
             int stepY = dy > 0 ? stepSize : (dy < 0 ? -stepSize : 0);
@@ -274,7 +241,6 @@ public class LocationManager {
                     playerTile.getZ()
             );
 
-            // Use getClosestTileOnMap to find a walkable version of this tile
             Tile mapTile = Walking.getClosestTileOnMap(stepTile);
             if (mapTile != null) {
                 return mapTile;
@@ -283,19 +249,15 @@ public class LocationManager {
             return stepTile;
         }
 
-        // Sort tiles by distance with a stable approach (no risk of comparison issues)
         List<TileDistance> tileDistances = new ArrayList<>();
         for (Tile tile : reachableTiles) {
             double distance = tile.distance(playerTile);
-            // Add a tiny random factor to ensure no identical distances
             distance += Math.random() * 0.001;
             tileDistances.add(new TileDistance(tile, distance));
         }
 
-        // Sort by distance
         Collections.sort(tileDistances, Comparator.comparingDouble(TileDistance::getDistance));
 
-        // Skip the last tile we tried
         if (lastWalkableTile != null) {
             tileDistances.removeIf(td -> td.getTile().equals(lastWalkableTile));
         }
@@ -303,12 +265,6 @@ public class LocationManager {
         return tileDistances.isEmpty() ? area.getCenter() : tileDistances.get(0).getTile();
     }
 
-    /**
-     * Determines the optimal destination within a thieving area
-     *
-     * @param area The area to search within
-     * @return The optimal tile to walk to
-     */
     private Tile determineOptimalDestination(Area area) {
         String targetName = config.getCurrentTargetName();
         Player localPlayer = Players.getLocal();
@@ -326,7 +282,6 @@ public class LocationManager {
                             area.contains(obj));
 
             if (cakeStall != null) {
-                // Find a valid tile near the stall
                 for (int x = -1; x <= 1; x++) {
                     for (int y = -1; y <= 1; y++) {
                         Tile nearbyTile = new Tile(
@@ -357,13 +312,11 @@ public class LocationManager {
                             Walking.canWalk(npc));
 
             if (target != null) {
-                // Get a tile near the NPC but not exactly on it
                 Tile npcTile = target.getTile();
 
-                // Try several nearby tiles to find a reachable one
                 for (int x = -1; x <= 1; x++) {
                     for (int y = -1; y <= 1; y++) {
-                        if (x == 0 && y == 0) continue; // Skip the exact NPC tile
+                        if (x == 0 && y == 0) continue;
 
                         Tile nearbyTile = new Tile(
                                 npcTile.getX() + x,
@@ -385,37 +338,27 @@ public class LocationManager {
         for (Tile tile : area.getTiles()) {
             if (Walking.canWalk(tile)) {
                 double distance = tile.distance(localPlayer);
-                // Add tiny random factor to ensure no comparison issues
                 distance += Math.random() * 0.001;
                 walkableTiles.add(new TileDistance(tile, distance));
             }
         }
 
         if (!walkableTiles.isEmpty()) {
-            // Sort by distance
             Collections.sort(walkableTiles, Comparator.comparingDouble(TileDistance::getDistance));
             return walkableTiles.get(0).getTile();
         }
 
-        // Last resort: use the center of the area
         return Walking.getClosestTileOnMap(area.getCenter());
     }
 
-    /**
-     * Walks to the nearest bank
-     *
-     * @return True if already at the bank or successfully walking to it
-     */
     public boolean walkToBank() {
         try {
-            // First check if we're already at a bank
-            if (Bank.isOpen() || Bank.isOpen()) {
+            if (Bank.isOpen()) {
                 System.out.println("[LocationManager] Already at bank");
                 consecutiveBankFailures = 0;
                 return true;
             }
 
-            // Then check if in a bank area
             Area bank = getNearestBankArea();
             Player localPlayer = Players.getLocal();
 
@@ -425,12 +368,19 @@ public class LocationManager {
                 return true;
             }
 
-            // Ensure run is enabled for efficiency if we have enough energy
             if (!Walking.isRunEnabled() && Walking.getRunEnergy() > Walking.getRunThreshold()) {
                 Walking.toggleRun();
             }
 
-            // Walk to nearest bank booth - this should work in most cases
+            // Try using teleport if far from bank
+            if (shouldUseTeleport(bank)) {
+                if (useTeleport(bank)) {
+                    System.out.println("[LocationManager] Used teleport to get closer to bank");
+                    return true;
+                }
+            }
+
+            // Walk to nearest bank booth
             if (Bank.getClosestBankLocation() != null) {
                 System.out.println("[LocationManager] Walking to nearest bank booth");
                 boolean result = Walking.walk(Bank.getClosestBankLocation().getCenter());
@@ -443,18 +393,15 @@ public class LocationManager {
 
             // If bank booth walking failed, try our manual bank areas
             if (bank != null) {
-                // Find a walkable tile in the bank area
                 Tile walkableTile = null;
 
                 for (Tile tile : bank.getTiles()) {
                     if (Walking.canWalk(tile)) {
-                        // If we can directly walk to this tile, use it
                         walkableTile = tile;
                         break;
                     }
                 }
 
-                // If we didn't find a directly walkable tile, use the center
                 if (walkableTile == null) {
                     walkableTile = Walking.getClosestTileOnMap(bank.getCenter());
                 }
@@ -482,7 +429,6 @@ public class LocationManager {
                 }
             }
 
-            // All walking attempts failed
             System.out.println("[LocationManager] All bank walking attempts failed");
             consecutiveBankFailures++;
             return false;
@@ -495,11 +441,6 @@ public class LocationManager {
         }
     }
 
-    /**
-     * Checks if the player is at the current thieving area
-     *
-     * @return True if at the thieving area
-     */
     public boolean isAtThievingArea() {
         String targetName = config.getCurrentTargetName();
         Area area = getCurrentThievingArea();
@@ -519,16 +460,10 @@ public class LocationManager {
         return area.contains(localPlayer);
     }
 
-    /**
-     * Checks if a thieving target is available at the current location
-     *
-     * @return True if a valid target exists in the vicinity
-     */
     public boolean isThievingTargetAvailable() {
         String targetName = config.getCurrentTargetName();
         Player localPlayer = Players.getLocal();
 
-        // If we're not even in the thieving area, definitely no target available
         if (!isAtThievingArea()) {
             return false;
         }
@@ -591,18 +526,11 @@ public class LocationManager {
         return false;
     }
 
-    /**
-     * Checks if the player is at a bank
-     *
-     * @return True if at a bank
-     */
     public boolean isAtBank() {
-        // First check if the bank is open or nearby
-        if (Bank.isOpen() || Bank.isOpen()) {
+        if (Bank.isOpen()) {
             return true;
         }
 
-        // Then check if in a bank area
         Player localPlayer = Players.getLocal();
         for (Area bankArea : bankAreas.values()) {
             if (bankArea.contains(localPlayer)) {
@@ -613,13 +541,23 @@ public class LocationManager {
         return false;
     }
 
-    /**
-     * Gets teleport items from bank and manages bank interactions
-     *
-     * @return True if teleport items were successfully obtained
-     */
     public boolean getTeleportItemsFromBank() {
         try {
+            // First check for Ardougne-specific items if target is in Ardougne
+            String targetName = config.getCurrentTargetName();
+            boolean isArdougneTarget = targetName.equals("Knight of Ardougne") ||
+                    targetName.equals("Paladin") ||
+                    targetName.equals("Hero") ||
+                    targetName.equals("Cake Stall");
+
+            if (isArdougneTarget) {
+                // Check if we already have Ardougne teleport
+                if (hasTeleportItem("Ardougne teleport") || hasTeleportItem("Ardougne cloak")) {
+                    System.out.println("[LocationManager] Already have Ardougne teleport item");
+                    return true;
+                }
+            }
+
             // Check if we have teleport items already
             for (String teleportItem : TELEPORT_ITEMS.keySet()) {
                 if (hasTeleportItem(teleportItem)) {
@@ -637,6 +575,33 @@ public class LocationManager {
                 sleep(600, 900); // Wait for bank to open
             }
 
+            // If target is in Ardougne, check for Ardougne-specific teleports first
+            if (isArdougneTarget) {
+                // Try Ardougne teleport tablets first
+                Item ardyTeleport = Bank.get(item ->
+                        item != null && item.getName().toLowerCase().contains("ardougne teleport"));
+
+                if (ardyTeleport != null) {
+                    System.out.println("[LocationManager] Found Ardougne teleport in bank");
+                    if (Bank.withdraw(ardyTeleport.getName(), 5)) {
+                        sleep(600, 900);
+                        return true;
+                    }
+                }
+
+                // Try Ardougne cloak next
+                Item ardyCloak = Bank.get(item ->
+                        item != null && item.getName().toLowerCase().contains("ardougne cloak"));
+
+                if (ardyCloak != null) {
+                    System.out.println("[LocationManager] Found Ardougne cloak in bank");
+                    if (Bank.withdraw(ardyCloak.getName(), 1)) {
+                        sleep(600, 900);
+                        return true;
+                    }
+                }
+            }
+
             // Check for each teleport item in bank
             for (String teleportItem : TELEPORT_ITEMS.keySet()) {
                 // Look for items containing the name (with any charges)
@@ -646,7 +611,7 @@ public class LocationManager {
 
                 if (bankItem != null) {
                     System.out.println("[LocationManager] Found teleport item in bank: " + bankItem.getName());
-                    if (Bank.withdraw(bankItem.getName(), 1)) {
+                    if (Bank.withdraw(bankItem.getName(), teleportItem.contains("teleport") ? 5 : 1)) {
                         sleep(600, 900);
                         return true;
                     }
@@ -662,11 +627,6 @@ public class LocationManager {
         }
     }
 
-    /**
-     * Initializes all thieving areas
-     *
-     * @return Map of target names to areas
-     */
     private Map<String, Area> initializeThievingAreas() {
         Map<String, Area> areas = new HashMap<>();
 
@@ -723,13 +683,13 @@ public class LocationManager {
                 new Tile(2642, 3297, 0)
         )); // Ardougne
 
-        // Tea Stall - more precise area centered on the safespot
+        // Tea Stall
         areas.put("Tea Stall", new Area(
                 new Tile(3266, 3408, 0),
                 new Tile(3270, 3412, 0)
-        )); // Varrock - focused on the exact tea stall location
+        )); // Varrock
 
-        // Cake Stall - more precise area
+        // Cake Stall
         areas.put("Cake Stall", new Area(
                 new Tile(2643, 3295, 0),
                 new Tile(2647, 3299, 0)
@@ -738,11 +698,6 @@ public class LocationManager {
         return areas;
     }
 
-    /**
-     * Initializes all bank areas
-     *
-     * @return Map of bank names to areas
-     */
     private Map<String, Area> initializeBankAreas() {
         Map<String, Area> banks = new HashMap<>();
 
@@ -798,28 +753,30 @@ public class LocationManager {
         return banks;
     }
 
-    /**
-     * Checks if we should use a teleport to reach a destination
-     *
-     * @param destination The destination area
-     * @return True if we should use a teleport
-     */
     public boolean shouldUseTeleport(Area destination) {
         if (destination == null) {
             return false;
         }
 
-        // Don't teleport too frequently
         if (System.currentTimeMillis() - lastTeleportAttempt < TELEPORT_COOLDOWN) {
             return false;
         }
 
         Player localPlayer = Players.getLocal();
+        String currentRegion = determineRegion(new Area(localPlayer.getTile(), localPlayer.getTile()));
+        String destinationRegion = determineRegion(destination);
+
+        if (currentRegion.equals(destinationRegion) && !currentRegion.equals("Unknown")) {
+            return false;
+        }
+
         double distance = localPlayer.distance(destination.getCenter());
 
-        // Only use teleports for long distances
+        if (destinationRegion.equals("Ardougne") && (hasTeleportItem("Ardougne teleport") || hasTeleportItem("Ardougne cloak"))) {
+            return true;
+        }
+
         if (distance > 50) {
-            // Check if we have teleport items
             for (String teleportItem : TELEPORT_ITEMS.keySet()) {
                 if (hasTeleportItem(teleportItem)) {
                     return true;
@@ -829,13 +786,6 @@ public class LocationManager {
 
         return false;
     }
-
-    /**
-     * Checks if player has a specific teleport item
-     *
-     * @param itemName The teleport item name
-     * @return True if player has the item
-     */
     private boolean hasTeleportItem(String itemName) {
         // Check inventory for any item containing the name
         if (Inventory.contains(item ->
@@ -852,12 +802,6 @@ public class LocationManager {
         return false;
     }
 
-    /**
-     * Uses an appropriate teleport item to get closer to destination
-     *
-     * @param destination The destination area
-     * @return True if teleport successful
-     */
     public boolean useTeleport(Area destination) {
         if (destination == null) {
             return false;
@@ -877,7 +821,11 @@ public class LocationManager {
         System.out.println("[LocationManager] Best teleport option: " + bestOption.getLocationName());
 
         // Find the teleport item for this option
-        String teleportItemName = TELEPORT_ITEMS.entrySet().stream().filter(entry -> entry.getValue().contains(bestOption)).findFirst().map(Map.Entry::getKey).orElse(null);
+        String teleportItemName = TELEPORT_ITEMS.entrySet().stream()
+                .filter(entry -> entry.getValue().contains(bestOption))
+                .findFirst()
+                .map(Map.Entry::getKey)
+                .orElse(null);
 
         if (teleportItemName == null) {
             System.out.println("[LocationManager] Could not find teleport item for option");
@@ -885,10 +833,22 @@ public class LocationManager {
         }
 
         // Try equipped item first
-        Item equipped = Equipment.getItemInSlot(EquipmentSlot.AMULET.getSlot());
+        Item equipped = null;
+        if (teleportItemName.contains("amulet") || teleportItemName.contains("glory")) {
+            equipped = Equipment.getItemInSlot(EquipmentSlot.AMULET.getSlot());
+        } else if (teleportItemName.contains("bracelet")) {
+            equipped = Equipment.getItemInSlot(EquipmentSlot.HANDS.getSlot());
+        } else if (teleportItemName.contains("ring")) {
+            equipped = Equipment.getItemInSlot(EquipmentSlot.RING.getSlot());
+        } else if (teleportItemName.contains("necklace")) {
+            equipped = Equipment.getItemInSlot(EquipmentSlot.AMULET.getSlot());
+        } else if (teleportItemName.contains("cloak")) {
+            equipped = Equipment.getItemInSlot(EquipmentSlot.CAPE.getSlot());
+        }
+
         if (equipped != null && equipped.getName().toLowerCase().contains(teleportItemName.toLowerCase())) {
-            if (equipped.interact("Rub") || equipped.interact("Teleport")) {
-                System.out.println("[LocationManager] Rubbing equipped " + equipped.getName());
+            if (equipped.interact("Rub") || equipped.interact("Teleport") || equipped.interact("Operate")) {
+                System.out.println("[LocationManager] Using equipped " + equipped.getName());
                 sleep(1000, 2000);
 
                 if (selectDialogueOption(bestOption.getDialogueOption())) {
@@ -904,8 +864,14 @@ public class LocationManager {
 
         if (invItem != null) {
             System.out.println("[LocationManager] Using inventory " + invItem.getName());
-            if (invItem.interact("Rub") || invItem.interact("Teleport")) {
+            if (invItem.interact("Rub") || invItem.interact("Teleport") || invItem.interact("Break")) {
                 sleep(1000, 2000);
+
+                // For tablets that don't have dialogue options
+                if (invItem.getName().toLowerCase().contains("teleport")) {
+                    sleep(3000, 4000); // Wait for teleport
+                    return true;
+                }
 
                 if (selectDialogueOption(bestOption.getDialogueOption())) {
                     sleep(3000, 4000); // Wait for teleport
@@ -917,13 +883,18 @@ public class LocationManager {
         System.out.println("[LocationManager] Failed to use teleport");
         return false;
     }
+    private Item getArdougneCloak() {
+        // Check equipped cloak first
+        Item equippedCloak = Equipment.getItemInSlot(EquipmentSlot.CAPE.getSlot());
+        if (equippedCloak != null && equippedCloak.getName().toLowerCase().contains("ardougne cloak")) {
+            return equippedCloak;
+        }
 
-    /**
-     * Finds the best teleport option for a destination
-     *
-     * @param destination The destination area
-     * @return The best teleport option
-     */
+        // Check inventory
+        return Inventory.get(item ->
+                item != null && item.getName().toLowerCase().contains("ardougne cloak"));
+    }
+
     private TeleportOption findBestTeleportOption(Area destination) {
         Tile destCenter = destination.getCenter();
         TeleportOption bestOption = null;
@@ -932,7 +903,6 @@ public class LocationManager {
         for (List<TeleportOption> options : TELEPORT_ITEMS.values()) {
             for (TeleportOption option : options) {
                 double distance = option.getLocation().distance(destCenter);
-                // Add a tiny random factor to avoid comparison issues
                 distance += Math.random() * 0.001;
 
                 if (distance < bestDistance) {
@@ -945,12 +915,6 @@ public class LocationManager {
         return bestOption;
     }
 
-    /**
-     * Selects a dialogue option
-     *
-     * @param option The dialogue option index (1-based)
-     * @return True if option was selected
-     */
     private boolean selectDialogueOption(int option) {
         try {
             // Try multiple ways to select dialogue option
@@ -976,9 +940,6 @@ public class LocationManager {
         }
     }
 
-    /**
-     * Determines the region of a destination area for teleport selection
-     */
     private String determineRegion(Area destination) {
         Tile center = destination.getCenter();
 
@@ -995,8 +956,8 @@ public class LocationManager {
         } else if (center.getX() >= 2800 && center.getX() <= 2900 &&
                 center.getY() >= 3000 && center.getY() <= 3100) {
             return "Karamja";
-        } else if (center.getX() >= 2640 && center.getX() <= 2680 &&
-                center.getY() >= 3270 && center.getY() <= 3310) {
+        } else if (center.getX() >= 2560 && center.getX() <= 2680 &&  // Expanded Ardougne region
+                center.getY() >= 3270 && center.getY() <= 3350) {
             return "Ardougne";
         } else if (center.getX() >= 3200 && center.getX() <= 3230 &&
                 center.getY() >= 3200 && center.getY() <= 3240) {
@@ -1009,9 +970,6 @@ public class LocationManager {
         return "Unknown";
     }
 
-    /**
-     * Sleeps for a random time between min and max milliseconds
-     */
     private void sleep(int min, int max) {
         try {
             Thread.sleep(min + (int) (Math.random() * (max - min)));
@@ -1020,9 +978,6 @@ public class LocationManager {
         }
     }
 
-    /**
-     * Helper class to store a tile with its distance for stable sorting
-     */
     private static class TileDistance {
         private final Tile tile;
         private final double distance;
@@ -1041,9 +996,6 @@ public class LocationManager {
         }
     }
 
-    /**
-     * Represents a teleport option for a teleport item
-     */
     private static class TeleportOption {
         private final String locationName;
         private final int dialogueOption;

@@ -1,5 +1,6 @@
-package org;
+package org.managers;
 
+import org.core.config.ThievingState;
 import org.dreambot.api.methods.skills.Skill;
 import org.dreambot.api.methods.skills.SkillTracker;
 import org.dreambot.api.methods.skills.Skills;
