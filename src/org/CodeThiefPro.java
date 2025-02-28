@@ -12,7 +12,6 @@ import org.dreambot.api.methods.map.Tile;
 import org.dreambot.api.methods.skills.Skill;
 import org.dreambot.api.methods.skills.SkillTracker;
 import org.dreambot.api.methods.skills.Skills;
-import org.dreambot.api.methods.walking.impl.Walking;
 import org.dreambot.api.script.AbstractScript;
 import org.dreambot.api.script.Category;
 import org.dreambot.api.script.ScriptManifest;
@@ -33,12 +32,13 @@ import java.awt.event.MouseListener;
 @ScriptManifest(
         name = "CodeThief Pro",
         author = "Calle",
-        version = 1.2,
+        version = 1.0,
         description = "Advanced thieving script with auto-progression",
         category = Category.THIEVING
 )
 public class CodeThiefPro extends AbstractScript implements PaintListener, ChatListener, MouseListener {
 
+    // Configuration and managers
     private ThievingState state;
     private ScriptConfiguration config;
     private LocationManager locationManager;
@@ -46,185 +46,174 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
     private AntiBanManager antiBanManager;
     private StatisticsTracker statsTracker;
     private GUI gui;
+    private WindMouseCustom customMouse;
 
-    private int consecutiveBankWalkFailures = 0;
+    // Tracking variables
     private long lastThievingAttempt;
     private long lastStateChange;
     private long lastTargetSearch;
     private long lastStatsUpdate;
     private int consecutiveFailures;
-    private boolean scriptStarted;
-    private Object currentTarget;
-    private boolean cantReachMessageReceived;
     private int failedInteractionAttempts;
+    private boolean scriptStarted;
+    private boolean cantReachMessageReceived;
+    private Object currentTarget;
 
+    // Constants
     private static final int COIN_POUCH_THRESHOLD = 12;
     private static final int TARGET_REFRESH_INTERVAL = 5000;
     private static final int MAX_FAILED_INTERACTIONS = 5;
     private static final int STATS_UPDATE_INTERVAL = 2000;
 
-    private WindMouseCustom customMouse;
-
     @Override
     public void onStart() {
         try {
+            // Initialize custom mouse movement
             customMouse = new WindMouseCustom();
             Mouse.setMouseAlgorithm(customMouse);
             log("Custom mouse movement algorithm initialized");
+
+            // Initialize configuration
             config = new ScriptConfiguration();
 
-            final boolean[] configComplete = new boolean[1];
-            configComplete[0] = false;
+            // Set up GUI
+            setupGUI();
 
-            try {
-                SwingUtilities.invokeAndWait(() -> {
-                    try {
-                        log("Creating GUI...");
-                        gui = new GUI(this, config);
-
-                        gui.addWindowListener(new java.awt.event.WindowAdapter() {
-                            @Override
-                            public void windowClosed(java.awt.event.WindowEvent windowEvent) {
-                                log("GUI window closed");
-                                configComplete[0] = config.isConfigured();
-                            }
-                        });
-
-                        gui.setVisible(true);
-                        log("GUI created and shown successfully");
-                    } catch (Exception e) {
-                        log("Error creating GUI: " + e.getMessage());
-                        e.printStackTrace();
-
-                        try {
-                            log("Attempting to create fallback GUI...");
-                            JPanel panel = new JPanel(new GridLayout(0, 1));
-
-                            JComboBox<String> targetSelector = new JComboBox<>(new String[]{
-                                    "Man", "Woman", "Farmer", "Warrior", "Guard", "Master Farmer",
-                                    "Knight of Ardougne", "Paladin", "Hero", "Tea Stall", "Cake Stall"
-                            });
-                            panel.add(new JLabel("Select target:"));
-                            panel.add(targetSelector);
-
-                            JCheckBox autoProgression = new JCheckBox("Auto-progression", true);
-                            panel.add(autoProgression);
-
-                            JCheckBox banking = new JCheckBox("Banking", true);
-                            panel.add(banking);
-
-                            int result = JOptionPane.showConfirmDialog(null, panel,
-                                    "CodeThief Pro - Basic Setup", JOptionPane.OK_CANCEL_OPTION);
-
-                            if (result == JOptionPane.OK_OPTION) {
-                                config.setCurrentTargetName((String) targetSelector.getSelectedItem());
-                                config.setAutoProgressionEnabled(autoProgression.isSelected());
-                                config.setBankingEnabled(banking.isSelected());
-                                config.setConfigured(true);
-                                configComplete[0] = true;
-                                log("Fallback configuration completed");
-                            } else {
-                                log("User canceled fallback configuration");
-                            }
-                        } catch (Exception ex) {
-                            log("Error creating fallback GUI: " + ex.getMessage());
-                            e.printStackTrace();
-                        }
-                    }
-                });
-            } catch (Exception e) {
-                log("Error waiting for GUI: " + e.getMessage());
-                e.printStackTrace();
-
-                config.setCurrentTargetName("Man");
-                config.setAutoProgressionEnabled(true);
-                config.setBankingEnabled(true);
-                config.setConfigured(true);
-                configComplete[0] = true;
-                log("Using default settings due to GUI error");
+            // Continue initialization when config is ready
+            if (config.isConfigured()) {
+                initializeScript();
             }
-
-            int timeout = 0;
-            int maxTimeout = 1200;
-
-            log("Waiting for user to configure script...");
-
-            while (!configComplete[0] && timeout < maxTimeout) {
-                if (config.isConfigured()) {
-                    configComplete[0] = true;
-                    log("Configuration completed via Start button");
-                    break;
-                }
-
-                if (gui != null && !gui.isVisible() && timeout > 10) {
-                    if (!config.isConfigured()) {
-                        log("GUI closed without configuring. Stopping script.");
-                        stop();
-                        return;
-                    }
-                }
-
-                sleep(500);
-                timeout++;
-
-                if (timeout % 120 == 0) {
-                    log("Still waiting for configuration... " + (timeout / 120) + " minutes elapsed");
-                }
-            }
-
-            if (timeout >= maxTimeout) {
-                log("Configuration timed out after 10 minutes. Stopping script.");
-                stop();
-                return;
-            }
-
-            if (!config.isConfigured()) {
-                log("Script not properly configured. Stopping.");
-                stop();
-                return;
-            }
-
-            log("Starting script with target: " + config.getCurrentTargetName());
-
-            locationManager = new LocationManager(config);
-            log("Loaded LocationManager");
-            inventoryManager = new InventoryManager(config);
-            inventoryManager.setLocationManager(locationManager);
-            log("Loaded InventoryManager");
-            antiBanManager = new AntiBanManager(config);
-            log("Loaded AntiBanManager");
-            antiBanManager.setCustomMouse(customMouse);
-            log("Loaded Anti-ban custom mouse");
-
-            statsTracker = new StatisticsTracker();
-
-            Canvas canvas = Client.getCanvas();
-            if (canvas != null) {
-                canvas.addMouseListener(this);
-            }
-
-            SkillTracker.start(Skill.THIEVING);
-
-            log("Configured food items: " + config.getFoodItems().toString());
-
-            setState(ThievingState.INITIALIZE);
-
-            lastThievingAttempt = System.currentTimeMillis();
-            lastStateChange = System.currentTimeMillis();
-            lastTargetSearch = 0;
-            lastStatsUpdate = 0;
-            consecutiveFailures = 0;
-            scriptStarted = true;
-            currentTarget = null;
-            cantReachMessageReceived = false;
-            failedInteractionAttempts = 0;
-
-            log("CodeThief Pro started successfully!");
         } catch (Exception e) {
             log("Error in onStart: " + e.getMessage());
-            e.printStackTrace();
             stop();
         }
+    }
+
+    /**
+     * Sets up the GUI for script configuration
+     */
+    private void setupGUI() {
+        final boolean[] configComplete = new boolean[1];
+        configComplete[0] = false;
+
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                try {
+                    log("Creating GUI...");
+                    gui = new GUI(this, config);
+
+                    gui.addWindowListener(new java.awt.event.WindowAdapter() {
+                        @Override
+                        public void windowClosed(java.awt.event.WindowEvent windowEvent) {
+                            log("GUI window closed");
+                            configComplete[0] = config.isConfigured();
+                        }
+                    });
+
+                    gui.setVisible(true);
+                    log("GUI created and shown successfully");
+                } catch (Exception e) {
+                    log("Error creating GUI: " + e.getMessage());
+                    createDefaultSettings();
+                }
+            });
+        } catch (Exception e) {
+            log("Error waiting for GUI: " + e.getMessage());
+            createDefaultSettings();
+        }
+
+        int timeout = 0;
+        int maxTimeout = 1200; // 10 minutes (1200 * 500ms)
+
+        log("Waiting for user to configure script...");
+
+        while (!configComplete[0] && timeout < maxTimeout) {
+            if (config.isConfigured()) {
+                configComplete[0] = true;
+                log("Configuration completed via Start button");
+                break;
+            }
+
+            if (gui != null && !gui.isVisible() && timeout > 10) {
+                if (!config.isConfigured()) {
+                    log("GUI closed without configuring. Stopping script.");
+                    stop();
+                    return;
+                }
+            }
+
+            sleep(500);
+            timeout++;
+
+            if (timeout % 120 == 0) {
+                log("Still waiting for configuration... " + (timeout / 120) + " minutes elapsed");
+            }
+        }
+
+        if (timeout >= maxTimeout) {
+            log("Configuration timed out after 10 minutes. Stopping script.");
+            stop();
+            return;
+        }
+
+        if (!config.isConfigured()) {
+            log("Script not properly configured. Stopping.");
+            stop();
+        }
+    }
+
+    /**
+     * Creates default settings when GUI fails
+     */
+    private void createDefaultSettings() {
+        config.setCurrentTargetName("Man");
+        config.setAutoProgressionEnabled(true);
+        config.setBankingEnabled(true);
+        config.setConfigured(true);
+        log("Using default settings due to GUI error");
+    }
+
+    /**
+     * Initializes the script with core components
+     */
+    private void initializeScript() {
+        log("Starting script with target: " + config.getCurrentTargetName());
+
+        // Initialize managers
+        locationManager = new LocationManager(config);
+        log("Loaded LocationManager");
+
+        inventoryManager = new InventoryManager(config);
+        inventoryManager.setLocationManager(locationManager);
+        log("Loaded InventoryManager");
+
+        antiBanManager = new AntiBanManager(config);
+        log("Loaded AntiBanManager");
+        antiBanManager.setCustomMouse(customMouse);
+        log("Loaded Anti-ban custom mouse");
+
+        statsTracker = new StatisticsTracker();
+
+        // Add mouse listener for paint interaction
+        Canvas canvas = Client.getCanvas();
+        canvas.addMouseListener(this);
+
+        // Start tracking XP
+        SkillTracker.start(Skill.THIEVING);
+
+        // Initialize state variables
+        setState(ThievingState.INITIALIZE);
+        lastThievingAttempt = System.currentTimeMillis();
+        lastStateChange = System.currentTimeMillis();
+        lastTargetSearch = 0;
+        lastStatsUpdate = 0;
+        consecutiveFailures = 0;
+        scriptStarted = true;
+        currentTarget = null;
+        cantReachMessageReceived = false;
+        failedInteractionAttempts = 0;
+
+        log("CodeThief Pro started successfully!");
     }
 
     @Override
@@ -240,47 +229,56 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
         try {
             cantReachMessageReceived = false;
 
+            // Perform anti-ban actions
             antiBanManager.performRandomChecks();
 
+            // Update statistics periodically
             if (System.currentTimeMillis() - lastStatsUpdate > STATS_UPDATE_INTERVAL) {
                 updateStatistics();
                 lastStatsUpdate = System.currentTimeMillis();
             }
 
-            switch (state) {
-                case INITIALIZE:
-                    return handleInitialize();
-                case WALKING_TO_LOCATION:
-                    return handleWalkingToLocation();
-                case THIEVING:
-                    return handleThieving();
-                case HANDLING_INVENTORY:
-                    return handleInventory();
-                case WALKING_TO_BANK:
-                    return handleWalkingToBank();
-                case BANKING:
-                    return handleBanking();
-                case HANDLING_HEALTH:
-                    return handleHealth();
-                case ERROR:
-                    return handleError();
-                default:
-                    setState(ThievingState.INITIALIZE);
-                    return 600;
-            }
+            // State machine for script behavior
+            return handleState();
         } catch (Exception e) {
             log("Error in main loop: " + e.getMessage());
-            e.printStackTrace();
             setState(ThievingState.ERROR);
             return 1000;
         }
     }
 
+    /**
+     * Handles the current state of the script
+     */
+    private int handleState() {
+        switch (state) {
+            case INITIALIZE:
+                return handleInitialize();
+            case WALKING_TO_LOCATION:
+                return handleWalkingToLocation();
+            case THIEVING:
+                return handleThieving();
+            case HANDLING_INVENTORY:
+                return handleInventory();
+            case WALKING_TO_BANK:
+                return handleWalkingToBank();
+            case BANKING:
+                return handleBanking();
+            case HANDLING_HEALTH:
+                return handleHealth();
+            case ERROR:
+                return handleError();
+            default:
+                setState(ThievingState.INITIALIZE);
+                return 600;
+        }
+    }
 
     @Override
     public void onMessage(Message message) {
         String msg = message.getMessage().toLowerCase();
 
+        // Handle "can't reach" messages
         if (msg.contains("can't reach that") || msg.contains("too far away")) {
             cantReachMessageReceived = true;
             failedInteractionAttempts++;
@@ -293,25 +291,32 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
             }
         }
 
+        // Handle successful pickpocket/steal
         if (msg.contains("you pick") || msg.contains("you steal")) {
             statsTracker.onSuccessfulThieve();
             consecutiveFailures = 0;
             failedInteractionAttempts = 0;
         }
 
+        // Handle failed pickpocket/stun
         if (msg.contains("you fail") || msg.contains("you're stunned")) {
             statsTracker.onFailedThieve();
             consecutiveFailures++;
         }
 
+        // Handle full inventory
         if (msg.contains("inventory is too full")) {
             setState(ThievingState.HANDLING_INVENTORY);
         }
     }
 
+    /**
+     * Initializes the script state
+     */
     private int handleInitialize() {
         int thievingLevel = Skills.getRealLevel(Skill.THIEVING);
 
+        // Auto-progression if enabled
         if (config.isAutoProgressionEnabled()) {
             String optimalTarget = config.determineOptimalTarget(thievingLevel);
             config.setCurrentTargetName(optimalTarget);
@@ -320,12 +325,14 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
 
         statsTracker.setCurrentTarget(config.getCurrentTargetName());
 
+        // Check if we need to heal and get food
         if (inventoryManager.needToHeal() && !inventoryManager.hasFood() && config.isBankingEnabled()) {
             log("Need to heal but no food available. Going to bank first.");
             setState(ThievingState.WALKING_TO_BANK);
             return 300;
         }
 
+        // Check if we're already at target
         if (locationManager.isAtThievingArea()) {
             currentTarget = findThievingTarget();
             if (currentTarget != null) {
@@ -333,14 +340,10 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
                 setState(ThievingState.THIEVING);
                 return 300;
             }
-        } else if (!inventoryManager.hasTeleportItem() && config.isBankingEnabled()) {
-            log("Not in target area and no teleport items. Going to bank first.");
-            setState(ThievingState.WALKING_TO_BANK);
-            return 300;
         }
 
+        // Find target or walk to location
         currentTarget = findThievingTarget();
-
         if (currentTarget != null) {
             log("Target found. Starting thieving.");
             setState(ThievingState.THIEVING);
@@ -351,7 +354,11 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
         return 300;
     }
 
+    /**
+     * Handles walking to thieving location
+     */
     private int handleWalkingToLocation() {
+        // Check if target is already visible
         currentTarget = findThievingTarget();
         if (currentTarget != null) {
             log("Found target while preparing to walk. Skipping walk.");
@@ -359,46 +366,61 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
             return 300;
         }
 
+        // Handle health if needed
         if (inventoryManager.needToHeal()) {
             setState(ThievingState.HANDLING_HEALTH);
             return 300;
         }
 
+        // Check if already at location
         if (locationManager.isAtThievingArea()) {
             log("Arrived at thieving location");
             setState(ThievingState.THIEVING);
             return 300;
         }
 
+        // Walk to location
         if (locationManager.walkToThievingArea()) {
             log("Walking to thieving location: " + config.getCurrentTargetName());
             return 1000;
         } else {
-            log("Failed to walk to thieving location");
-            setState(ThievingState.ERROR);
+            // Check if we're stuck
+            if (locationManager.isStuck()) {
+                log("Walking appears to be stuck. Trying to recover.");
+                locationManager.resetStuckState();
+                setState(ThievingState.ERROR);
+            }
             return 1000;
         }
     }
 
+    /**
+     * Handles thieving actions
+     */
     private int handleThieving() {
+        // Check inventory status
         if (inventoryManager.isInventoryFull()) {
             setState(ThievingState.HANDLING_INVENTORY);
             return 300;
         }
 
+        // Check health status
         if (inventoryManager.needToHeal()) {
             setState(ThievingState.HANDLING_HEALTH);
             return 300;
         }
 
+        // Handle coin pouches
         if (inventoryManager.handleCoinPouches(COIN_POUCH_THRESHOLD)) {
             return 600;
         }
 
+        // Check if we need to refresh target
         if (currentTarget == null || shouldRefreshTarget()) {
             currentTarget = findThievingTarget();
         }
 
+        // Interact with target
         if (currentTarget != null) {
             if (currentTarget instanceof NPC) {
                 return handleNPCThieving((NPC) currentTarget);
@@ -407,6 +429,7 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
             }
         }
 
+        // No target found, check if we're in the right area
         if (!locationManager.isThievingTargetAvailable()) {
             log("No thieving target found. Walking to location.");
             setState(ThievingState.WALKING_TO_LOCATION);
@@ -417,6 +440,9 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
         return 1000;
     }
 
+    /**
+     * Determines if the target should be refreshed
+     */
     private boolean shouldRefreshTarget() {
         if (cantReachMessageReceived) {
             return true;
@@ -437,78 +463,93 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
         return true;
     }
 
+    /**
+     * Finds a thieving target
+     */
     private Object findThievingTarget() {
         lastTargetSearch = System.currentTimeMillis();
         String targetName = config.getCurrentTargetName();
 
         log("Searching for target: " + targetName);
 
+        // Handle stalls
         if (targetName.equals("Tea Stall") || targetName.equals("Cake Stall")) {
-            GameObject stall = GameObjects.closest(obj ->
-                    obj.getName().equals(targetName) &&
-                            obj.hasAction("Steal-from"));
-
-            if (stall != null) {
-                log("Found " + targetName + " at " + stall.getTile() + ", distance: " + stall.distance());
-
-                if (targetName.equals("Tea Stall")) {
-                    Player player = Players.getLocal();
-                    Tile teaStallSafespot = new Tile(3268, 3410, 0);
-
-                    if (player.distance(teaStallSafespot) > 3) {
-                        log("Not at Tea Stall safespot yet. Need to walk there first.");
-                        return null;
-                    }
-                }
-                return stall;
-            } else {
-                log("Could not find " + targetName);
-            }
-            return null;
+            return findStallTarget(targetName);
         } else {
-            NPC target = NPCs.closest(npc ->
-                    npc != null &&
-                            npc.getName().equals(targetName) &&
-                            !npc.isInCombat() &&
-                            npc.hasAction("Pickpocket") &&
-                            npc.getInteractingCharacter() == null &&
-                            npc.exists() &&
-                            npc.canReach());
-
-            if (target != null) {
-                log("Found reachable " + targetName + " at distance " + String.format("%.1f", target.distance()));
-                return target;
-            }
-
-            NPC visibleTarget = NPCs.closest(npc ->
-                    npc != null &&
-                            npc.getName().equals(targetName) &&
-                            !npc.isInCombat() &&
-                            npc.hasAction("Pickpocket") &&
-                            npc.getInteractingCharacter() == null &&
-                            npc.exists());
-
-            if (visibleTarget != null) {
-                log("Found " + targetName + " but can't reach it. Distance: " +
-                        String.format("%.1f", visibleTarget.distance()));
-
-                Tile targetTile = visibleTarget.getTile();
-                if (Walking.canWalk(targetTile)) {
-                    log("Walking closer to target");
-                    Walking.walk(targetTile);
-                    sleep(800, 1200);
-
-                    if (visibleTarget.canReach()) {
-                        return visibleTarget;
-                    }
-                }
-            }
-
-            log("No reachable " + targetName + " found.");
-            return null;
+            return findNPCTarget(targetName);
         }
     }
 
+    /**
+     * Finds a stall target
+     */
+    private GameObject findStallTarget(String targetName) {
+        GameObject stall = GameObjects.closest(obj ->
+                obj.getName().equals(targetName) &&
+                        obj.hasAction("Steal-from"));
+
+        if (stall != null) {
+            log("Found " + targetName + " at " + stall.getTile() + ", distance: " + stall.distance());
+
+            if (targetName.equals("Tea Stall")) {
+                Player player = Players.getLocal();
+                Tile teaStallSafespot = new Tile(3268, 3410, 0);
+
+                if (player.distance(teaStallSafespot) > 3) {
+                    log("Not at Tea Stall safespot yet. Need to walk there first.");
+                    return null;
+                }
+            }
+            return stall;
+        } else {
+            log("Could not find " + targetName);
+        }
+        return null;
+    }
+
+    /**
+     * Finds an NPC target
+     */
+    private NPC findNPCTarget(String targetName) {
+        NPC closestNPC = NPCs.closest(npc ->
+                npc != null &&
+                        npc.exists() &&
+                        npc.getName().equals(targetName) &&
+                        npc.hasAction("Pickpocket"));
+
+        if (closestNPC != null) {
+            double distance = closestNPC.distance();
+            log("Found " + targetName + " at distance " + String.format("%.1f", distance));
+
+            // If we can directly reach it, just return it
+            if (closestNPC.canReach()) {
+                log("Target is directly reachable");
+                return closestNPC;
+            } else {
+                // Try to walk closer
+                log("Target not immediately reachable, attempting to walk closer");
+                if (org.dreambot.api.methods.walking.impl.Walking.walk(closestNPC.getTile())) {
+                    log("Walking to NPC at " + closestNPC.getTile());
+                    sleep(800, 1200);
+
+                    // After walking, check if we can reach it
+                    if (closestNPC.canReach()) {
+                        log("Target is now reachable after walking");
+                    }
+                }
+
+                // Return the closest NPC regardless
+                return closestNPC;
+            }
+        }
+
+        log("No " + targetName + " found nearby");
+        return null;
+    }
+
+    /**
+     * Handles pickpocketing an NPC
+     */
     private int handleNPCThieving(NPC npc) {
         if (System.currentTimeMillis() - lastThievingAttempt < 1200) {
             return 100;
@@ -526,6 +567,7 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
             return 600;
         }
 
+        // Purposely misclick sometimes for anti-ban
         if (antiBanManager.shouldMisclick()) {
             log("Intentional misclick");
             int currentX = npc.getX();
@@ -538,6 +580,7 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
             return 1000;
         }
 
+        // Attempt to pickpocket
         if (npc.interact("Pickpocket")) {
             log("Pickpocketing " + npc.getName());
             lastThievingAttempt = System.currentTimeMillis();
@@ -557,6 +600,9 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
         }
     }
 
+    /**
+     * Handles stealing from stalls or objects
+     */
     private int handleObjectThieving(GameObject gameObject) {
         if (System.currentTimeMillis() - lastThievingAttempt < 1200) {
             return 100;
@@ -575,23 +621,19 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
         }
 
         String action = "Steal-from";
-        if (gameObject.getName().toLowerCase().contains("chest")) {
-            action = "Open";
-        } else if (gameObject.getName().toLowerCase().contains("safe")) {
-            action = "Crack";
-        }
-
         boolean isStall = gameObject.getName().equals("Tea Stall") || gameObject.getName().equals("Cake Stall");
 
         log("Attempting to " + action + " " + gameObject.getName() + " (distance: " + gameObject.distance() + ")");
 
+        // Make sure we're close enough to stall
         if (isStall && gameObject.distance() > 2) {
-            Walking.walk(gameObject.getTile());
+            org.dreambot.api.methods.walking.impl.Walking.walk(gameObject.getTile());
             sleep(600, 1000);
             log("Moving closer to " + gameObject.getName());
             return 600;
         }
 
+        // Interact with object
         if (gameObject.interact(action)) {
             log("Successfully initiated " + action + " on " + gameObject.getName());
             lastThievingAttempt = System.currentTimeMillis();
@@ -613,28 +655,13 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
                 failedInteractionAttempts = 0;
             }
 
-            if (isStall) {
-                log("Repositioning for stall interaction");
-                Tile stallTile = gameObject.getTile();
-
-                for (int x = -1; x <= 1; x++) {
-                    for (int y = -1; y <= 1; y++) {
-                        if (x == 0 && y == 0) continue;
-
-                        Tile nearbyTile = new Tile(stallTile.getX() + x, stallTile.getY() + y, stallTile.getZ());
-                        if (nearbyTile.canReach()) {
-                            Walking.walk(nearbyTile);
-                            sleep(800, 1200);
-                            break;
-                        }
-                    }
-                }
-            }
+            return 600;
         }
-
-        return 600;
     }
 
+    /**
+     * Handles full inventory
+     */
     private int handleInventory() {
         if (config.isFreestyleMode() || !config.isBankingEnabled()) {
             if (inventoryManager.handleFullInventory()) {
@@ -649,6 +676,9 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
         return 600;
     }
 
+    /**
+     * Handles walking to bank
+     */
     private int handleWalkingToBank() {
         try {
             if (locationManager.isAtBank()) {
@@ -656,33 +686,27 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
                 return 300;
             }
 
-            if (inventoryManager.hasTeleportItem()) {
-                log("Using teleport to get to bank");
-            } else {
-                log("No teleport items available, using walking paths");
-            }
-
+            log("Walking to nearest bank");
             if (locationManager.walkToBank()) {
-                consecutiveBankWalkFailures = 0;
                 return 1000;
             } else {
-                if (consecutiveBankWalkFailures >= 3) {
+                if (locationManager.isStuck()) {
                     log("Multiple bank walk failures. Moving to ERROR state.");
+                    locationManager.resetStuckState();
                     setState(ThievingState.ERROR);
-                } else {
-                    consecutiveBankWalkFailures++;
-                    log("Failed to walk to bank (Attempt " + consecutiveBankWalkFailures + ")");
                 }
                 return 1000;
             }
         } catch (Exception e) {
             log("Error in handleWalkingToBank: " + e.getMessage());
-            e.printStackTrace();
             setState(ThievingState.ERROR);
             return 1000;
         }
     }
 
+    /**
+     * Handles banking operations
+     */
     private int handleBanking() {
         if (!locationManager.isAtBank()) {
             log("Not at bank yet, moving to WALKING_TO_BANK state");
@@ -707,6 +731,9 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
         return 600;
     }
 
+    /**
+     * Handles health management
+     */
     private int handleHealth() {
         if (inventoryManager.hasFood()) {
             if (inventoryManager.eatFood()) {
@@ -744,6 +771,9 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
         return 600;
     }
 
+    /**
+     * Handles error recovery
+     */
     private int handleError() {
         if (System.currentTimeMillis() - lastStateChange > 30000) {
             log("Attempting to recover from error state");
@@ -754,6 +784,9 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
         return 5000;
     }
 
+    /**
+     * Updates statistics tracking
+     */
     private void updateStatistics() {
         if (statsTracker != null && inventoryManager != null) {
             statsTracker.updateInventoryStats(
@@ -764,6 +797,9 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
         }
     }
 
+    /**
+     * Changes script state
+     */
     private void setState(ThievingState newState) {
         if (state != newState) {
             log("State changed: " + state + " -> " + newState);
@@ -775,11 +811,14 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
         }
     }
 
+    /**
+     * Sleeps for a random time between min and max
+     */
     private void sleep(int min, int max) {
         try {
             Thread.sleep(min + (int) (Math.random() * (max - min)));
         } catch (InterruptedException e) {
-            e.printStackTrace();
+            log("Sleep interrupted: " + e.getMessage());
         }
     }
 
@@ -795,17 +834,6 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
         } catch (Exception e) {
             graphics.setColor(Color.RED);
             graphics.drawString("Paint Error: " + e.getMessage(), 10, 70);
-        }
-    }
-
-    public void openGUIFromPaint() {
-        if (gui == null || !gui.isVisible()) {
-            SwingUtilities.invokeLater(() -> {
-                if (gui == null) {
-                    gui = new GUI(this, config);
-                }
-                gui.setVisible(true);
-            });
         }
     }
 
@@ -825,9 +853,12 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
         if (gui != null && gui.isVisible()) {
             gui.dispose();
         }
+
+        // Restore default mouse algorithm
         Mouse.setMouseAlgorithm(Mouse.getDefaultMouseAlgorithm());
     }
 
+    // Mouse listener implementation for paint interaction
     @Override
     public void mouseClicked(MouseEvent e) {
         try {
@@ -841,17 +872,21 @@ public class CodeThiefPro extends AbstractScript implements PaintListener, ChatL
 
     @Override
     public void mousePressed(MouseEvent e) {
+        // Not used
     }
 
     @Override
     public void mouseReleased(MouseEvent e) {
+        // Not used
     }
 
     @Override
     public void mouseEntered(MouseEvent e) {
+        // Not used
     }
 
     @Override
     public void mouseExited(MouseEvent e) {
+        // Not used
     }
 }

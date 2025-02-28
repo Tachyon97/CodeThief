@@ -54,7 +54,7 @@ public class StatisticsTracker {
     private final NumberFormat formatNumber = NumberFormat.getNumberInstance(Locale.US);
 
     // Paint settings
-    private boolean expandedPaint = true;
+    private boolean expandedPaint = false;
 
     // Paint colors - exact color scheme as requested
     private final Color backgroundBaseColor = new Color(20, 12, 28, 230); // Darker background with opacity
@@ -256,7 +256,7 @@ public class StatisticsTracker {
         // Draw header text
         g2d.setFont(new Font("Arial", Font.BOLD, 14)); // Smaller font
         g2d.setColor(headerColor);
-        g2d.drawString("CodeThief Pro v1.2", x + 10, y + 20);
+        g2d.drawString("CodeThief Pro v1.0", x + 10, y + 20);
 
         // Draw underline
         g2d.setColor(accentColor);
@@ -309,7 +309,7 @@ public class StatisticsTracker {
         // Setup section header
         g2d.setFont(new Font("Arial", Font.BOLD, 14));
         g2d.setColor(headerColor);
-        g2d.drawString("Advanced Statistics", x + 10, y + 15);
+        g2d.drawString("Expanded", x + 10, y + 15);
 
         // Underline
         g2d.setColor(accentColor);

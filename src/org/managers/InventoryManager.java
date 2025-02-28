@@ -3,7 +3,6 @@ package org.managers;
 import org.core.config.ScriptConfiguration;
 import org.dreambot.api.methods.container.impl.Inventory;
 import org.dreambot.api.methods.container.impl.bank.Bank;
-import org.dreambot.api.methods.container.impl.equipment.Equipment;
 import org.dreambot.api.methods.skills.Skill;
 import org.dreambot.api.methods.skills.Skills;
 import org.dreambot.api.wrappers.items.Item;
@@ -12,16 +11,23 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/**
+ * Manages all inventory-related functionality including food, items, and banking
+ */
 public class InventoryManager {
     private final ScriptConfiguration config;
+    private LocationManager locationManager;
 
-    private static final String[] TELEPORT_ITEMS = {
-            "Amulet of glory", "Games necklace", "Ring of dueling",
-            "Skills necklace", "Ring of wealth", "Combat bracelet",
-            "Ardougne teleport", "Ardougne cloak", "Varrock teleport",
-            "Falador teleport", "Camelot teleport", "Lumbridge teleport"
-    };
+    // Tracking stats
+    private int foodEaten = 0;
+    private int itemsDropped = 0;
+    private int itemsBanked = 0;
+    private long lastFoodCheck = 0;
 
+    // Constants
+    private static final long FOOD_CHECK_COOLDOWN = 3000;
+
+    // Item keywords for identification
     private static final String[] FOOD_KEYWORDS = {
             "fish", "cake", "bread", "pizza", "pie", "stew", "wine",
             "potion", "brew", "food", "shark", "lobster", "salmon", "tuna",
@@ -34,50 +40,49 @@ public class InventoryManager {
             "necklace", "bracelet", "ring", "amulet", "clue scroll"
     };
 
-    private int foodEaten = 0;
-    private int itemsDropped = 0;
-    private int itemsBanked = 0;
-    private long lastFoodCheck = 0;
-    private static final long FOOD_CHECK_COOLDOWN = 3000;
-
-    private LocationManager locationManager;
-
+    /**
+     * Creates a new inventory manager
+     *
+     * @param config The script configuration
+     */
     public InventoryManager(ScriptConfiguration config) {
         this.config = config;
     }
 
-    public boolean isInventoryFull() {
-        return Inventory.isFull();
+    /**
+     * Sets the location manager
+     *
+     * @param locationManager The location manager
+     */
+    public void setLocationManager(LocationManager locationManager) {
+        this.locationManager = locationManager;
     }
 
-    public int getFreeSlots() {
-        return Inventory.emptySlotCount();
-    }
-
-    public int getItemCount() {
-        return Inventory.fullSlotCount();
-    }
-
-    public boolean hasSpaceFor(int n) {
-        return Inventory.emptySlotCount() >= n;
-    }
-
+    /**
+     * Handles a full inventory based on script configuration
+     *
+     * @return True if handled successfully
+     */
     public boolean handleFullInventory() {
         try {
             if (config.isFreestyleMode()) {
                 return dropJunkItems();
             } else if (config.isBankingEnabled()) {
-                return false;
+                return false; // Let script state change to walking to bank
             } else {
                 return dropAllExceptValuable();
             }
         } catch (Exception e) {
             System.out.println("Error handling full inventory: " + e.getMessage());
-            e.printStackTrace();
             return emergencyDropItems();
         }
     }
 
+    /**
+     * Emergency method to drop items when other methods fail
+     *
+     * @return True if some items were dropped
+     */
     private boolean emergencyDropItems() {
         try {
             System.out.println("EMERGENCY: Attempting to drop some items to free space");
@@ -102,6 +107,11 @@ public class InventoryManager {
         }
     }
 
+    /**
+     * Handles banking operations
+     *
+     * @return True if banking was successful
+     */
     public boolean handleBanking() {
         try {
             if (!Bank.isOpen()) {
@@ -124,125 +134,25 @@ public class InventoryManager {
                 System.out.println("Failed to deposit items");
             }
 
-            // Check if we're already at the thieving area, and only withdraw teleport if we're not
-            boolean atThievingArea = locationManager != null && locationManager.isAtThievingArea();
-            if (!atThievingArea) {
-                // Only withdraw teleport items if we need to travel back
-                withdrawTargetSpecificTeleport();
-                sleep(300, 600);
-            } else {
-                System.out.println("Already at thieving area, skipping teleport item withdrawal");
-            }
-
-            // Always withdraw food based on priorities
-            if (!withdrawFoodBasedOnPriority()) {
-                System.out.println("Failed to withdraw food");
-            }
+            // Withdraw food based on preferences
+            withdrawFoodBasedOnPriority();
 
             System.out.println("Closing bank...");
             Bank.close();
             sleep(300, 600);
 
-            // Log what we have
-            if (hasTeleportItem() && hasFood()) {
-                System.out.println("Successfully got food and teleport items from bank");
-            } else if (hasTeleportItem()) {
-                System.out.println("Got teleport items but no food");
-            } else if (hasFood()) {
-                System.out.println("Got food but no teleport items");
-            } else {
-                System.out.println("WARNING: Failed to get food or teleport items");
-            }
-
-            return true;
+            return hasFood();
         } catch (Exception e) {
             System.out.println("Banking error: " + e.getMessage());
-            e.printStackTrace();
             return false;
         }
     }
 
-    private boolean withdrawTargetSpecificTeleport() {
-        String targetName = config.getCurrentTargetName();
-        boolean isArdougneTarget = targetName.equals("Knight of Ardougne") ||
-                targetName.equals("Paladin") ||
-                targetName.equals("Hero") ||
-                targetName.equals("Cake Stall");
-
-        // Check Ardougne teleport for Ardougne targets
-        if (isArdougneTarget) {
-            // Try Ardougne teleport tablet first
-            Item ardyTeleport = Bank.get(item ->
-                    item != null && item.getName().toLowerCase().contains("ardougne teleport"));
-
-            if (ardyTeleport != null) {
-                System.out.println("Found Ardougne teleport in bank");
-                if (Bank.withdraw(ardyTeleport.getName(), 5)) {
-                    sleep(300, 600);
-                    return true;
-                }
-            }
-
-            // Try Ardougne cloak next
-            Item ardyCloak = Bank.get(item ->
-                    item != null && item.getName().toLowerCase().contains("ardougne cloak"));
-
-            if (ardyCloak != null) {
-                System.out.println("Found Ardougne cloak in bank");
-                if (Bank.withdraw(ardyCloak.getName(), 1)) {
-                    sleep(300, 600);
-                    return true;
-                }
-            }
-        }
-
-        // Varrock teleport for Tea Stall
-        if (targetName.equals("Tea Stall")) {
-            Item varrockTele = Bank.get(item ->
-                    item != null && item.getName().toLowerCase().contains("varrock teleport"));
-
-            if (varrockTele != null) {
-                System.out.println("Found Varrock teleport in bank");
-                if (Bank.withdraw(varrockTele.getName(), 5)) {
-                    sleep(300, 600);
-                    return true;
-                }
-            }
-        }
-
-        // Draynor teleport options for farmers/master farmers
-        if (targetName.equals("Farmer") || targetName.equals("Master Farmer")) {
-            // First try glory for Draynor
-            Item glory = Bank.get(item ->
-                    item != null && item.getName().toLowerCase().contains("glory"));
-
-            if (glory != null) {
-                System.out.println("Found Amulet of Glory in bank for Draynor teleport");
-                if (Bank.withdraw(glory.getName(), 1)) {
-                    sleep(300, 600);
-                    return true;
-                }
-            }
-        }
-
-        // Generic teleport items as fallback
-        for (String teleportItem : TELEPORT_ITEMS) {
-            Item item = Bank.get(i ->
-                    i != null && i.getName().toLowerCase().contains(teleportItem.toLowerCase()));
-
-            if (item != null) {
-                int amountToWithdraw = item.getName().toLowerCase().contains("teleport") ? 5 : 1;
-                System.out.println("Found teleport item: " + item.getName());
-                if (Bank.withdraw(item.getName(), amountToWithdraw)) {
-                    sleep(300, 500);
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
+    /**
+     * Withdraws food based on configured priorities
+     *
+     * @return True if food was withdrawn
+     */
     private boolean withdrawFoodBasedOnPriority() {
         List<String> foodPriorities = config.getFoodItems();
 
@@ -253,6 +163,7 @@ public class InventoryManager {
 
         System.out.println("Food priorities: " + foodPriorities);
 
+        // Try primary food first
         String primaryFood = foodPriorities.get(0);
         System.out.println("Trying primary food: " + primaryFood);
 
@@ -261,6 +172,7 @@ public class InventoryManager {
             return true;
         }
 
+        // Try alternative foods
         System.out.println("Primary food not found, trying alternatives...");
         for (int i = 1; i < foodPriorities.size(); i++) {
             String altFood = foodPriorities.get(i);
@@ -270,17 +182,27 @@ public class InventoryManager {
             }
         }
 
+        // Last resort - any food
         System.out.println("No configured food found, trying any food...");
         return withdrawAnyFood();
     }
 
+    /**
+     * Tries to withdraw a specific food
+     *
+     * @param foodName The food name
+     * @param amount   The amount to withdraw
+     * @return True if food was withdrawn
+     */
     private boolean tryWithdrawFood(String foodName, int amount) {
+        // Try exact match first
         if (Bank.contains(item ->
                 item != null &&
                         item.getName().equalsIgnoreCase(foodName))) {
             return Bank.withdraw(foodName, amount);
         }
 
+        // Try partial match
         Item bankItem = Bank.get(item ->
                 item != null &&
                         item.getName().toLowerCase().contains(foodName.toLowerCase()));
@@ -292,6 +214,11 @@ public class InventoryManager {
         return false;
     }
 
+    /**
+     * Withdraws any available food
+     *
+     * @return True if any food was withdrawn
+     */
     private boolean withdrawAnyFood() {
         for (String keyword : FOOD_KEYWORDS) {
             Item foodItem = Bank.get(item ->
@@ -312,6 +239,11 @@ public class InventoryManager {
         return false;
     }
 
+    /**
+     * Drops junk items based on target
+     *
+     * @return True if any items were dropped
+     */
     public boolean dropJunkItems() {
         String currentTarget = config.getCurrentTargetName();
 
@@ -324,6 +256,11 @@ public class InventoryManager {
         }
     }
 
+    /**
+     * Drops junk seeds for Master Farmer pickpocketing
+     *
+     * @return True if any seeds were dropped
+     */
     private boolean dropJunkSeeds() {
         String[] junkSeeds = {
                 "potato seed", "onion seed", "cabbage seed", "tomato seed",
@@ -354,36 +291,50 @@ public class InventoryManager {
         return itemsDroppedCount > 0;
     }
 
+    /**
+     * Drops junk items from stalls
+     *
+     * @return True if any items were dropped
+     */
     private boolean dropStallJunk() {
         String stallType = config.getCurrentTargetName();
         List<String> valuableItems = new ArrayList<>();
 
-        if (stallType.equals("Gem Stall")) {
-            valuableItems.add("sapphire");
-            valuableItems.add("emerald");
-            valuableItems.add("ruby");
-            valuableItems.add("diamond");
-        } else if (stallType.equals("Silk Stall")) {
-            valuableItems.add("silk");
-        } else if (stallType.equals("Silver Stall")) {
-            valuableItems.add("silver");
-        } else if (stallType.equals("Cake Stall")) {
-            valuableItems.add("cake");
-        } else if (stallType.equals("Tea Stall")) {
-            valuableItems.add("tea");
-            valuableItems.add("cup");
+        // Determine stall-specific valuable items
+        switch (stallType) {
+            case "Gem Stall":
+                valuableItems.add("sapphire");
+                valuableItems.add("emerald");
+                valuableItems.add("ruby");
+                valuableItems.add("diamond");
+                break;
+            case "Silk Stall":
+                valuableItems.add("silk");
+                break;
+            case "Silver Stall":
+                valuableItems.add("silver");
+                break;
+            case "Cake Stall":
+                valuableItems.add("cake");
+                break;
+            case "Tea Stall":
+                valuableItems.add("tea");
+                valuableItems.add("cup");
+                break;
         }
 
+        // Always keep coins and food
         valuableItems.add("coin");
         config.getFoodItems().forEach(food -> valuableItems.add(food.toLowerCase()));
-
-        for (String teleport : TELEPORT_ITEMS) {
-            valuableItems.add(teleport.toLowerCase());
-        }
 
         return dropAllExcept(valuableItems);
     }
 
+    /**
+     * Drops all items except valuable ones
+     *
+     * @return True if any items were dropped
+     */
     private boolean dropAllExceptValuable() {
         List<String> valuableItems = new ArrayList<>();
 
@@ -393,25 +344,22 @@ public class InventoryManager {
 
         config.getFoodItems().forEach(food -> valuableItems.add(food.toLowerCase()));
 
-        for (String teleport : TELEPORT_ITEMS) {
-            valuableItems.add(teleport.toLowerCase());
-        }
-
         return dropAllExcept(valuableItems);
     }
 
+    /**
+     * Drops all items except those matching the given list
+     *
+     * @param itemsToKeep List of item name keywords to keep
+     * @return True if any items were dropped
+     */
     private boolean dropAllExcept(List<String> itemsToKeep) {
         List<Item> itemsToDrop = Inventory.all().stream()
                 .filter(item -> item != null)
                 .filter(item -> {
                     String itemName = item.getName().toLowerCase();
-                    for (String keepName : itemsToKeep) {
-                        if (keepName == null) continue;
-                        if (itemName.contains(keepName.toLowerCase())) {
-                            return false;
-                        }
-                    }
-                    return true;
+                    return itemsToKeep.stream().noneMatch(keepName ->
+                            keepName != null && itemName.contains(keepName.toLowerCase()));
                 })
                 .collect(Collectors.toList());
 
@@ -432,6 +380,11 @@ public class InventoryManager {
         return itemsDroppedCount > 0;
     }
 
+    /**
+     * Checks if player needs to heal
+     *
+     * @return True if health is below threshold
+     */
     public boolean needToHeal() {
         if (System.currentTimeMillis() - lastFoodCheck < FOOD_CHECK_COOLDOWN) {
             return false;
@@ -446,43 +399,21 @@ public class InventoryManager {
         return healthPercent < config.getHealthThreshold();
     }
 
+    /**
+     * Eats food to heal
+     *
+     * @return True if food was eaten
+     */
     public boolean eatFood() {
         if (!hasFood()) {
             return false;
         }
 
-        List<String> configuredFoods = config.getFoodItems();
-
-        for (String foodName : configuredFoods) {
-            Item food = Inventory.get(item ->
-                    item != null && item.getName().equalsIgnoreCase(foodName));
-
-            if (food != null) {
-                System.out.println("Eating configured food: " + food.getName());
-                if (eatFoodItem(food)) {
-                    foodEaten++;
-                    return true;
-                }
-            }
-        }
-
-        for (String foodName : configuredFoods) {
-            Item food = Inventory.get(item ->
-                    item != null && item.getName().toLowerCase().contains(foodName.toLowerCase()));
-
-            if (food != null) {
-                System.out.println("Eating food (partial match): " + food.getName());
-                if (eatFoodItem(food)) {
-                    foodEaten++;
-                    return true;
-                }
-            }
-        }
-
-        Item possibleFood = Inventory.get(this::isEdibleItem);
-        if (possibleFood != null) {
-            System.out.println("Trying to eat possible food: " + possibleFood.getName());
-            if (eatFoodItem(possibleFood)) {
+        // Try to eat configured foods first
+        Item foodItem = findFoodItemToEat();
+        if (foodItem != null) {
+            System.out.println("Eating food: " + foodItem.getName());
+            if (eatFoodItem(foodItem)) {
                 foodEaten++;
                 return true;
             }
@@ -491,6 +422,42 @@ public class InventoryManager {
         return false;
     }
 
+    /**
+     * Finds a food item to eat
+     */
+    private Item findFoodItemToEat() {
+        List<String> configuredFoods = config.getFoodItems();
+
+        // Try exact matches first
+        for (String foodName : configuredFoods) {
+            Item food = Inventory.get(item ->
+                    item != null && item.getName().equalsIgnoreCase(foodName));
+
+            if (food != null) {
+                return food;
+            }
+        }
+
+        // Try partial matches
+        for (String foodName : configuredFoods) {
+            Item food = Inventory.get(item ->
+                    item != null && item.getName().toLowerCase().contains(foodName.toLowerCase()));
+
+            if (food != null) {
+                return food;
+            }
+        }
+
+        // Try any food as last resort
+        return Inventory.get(this::isEdibleItem);
+    }
+
+    /**
+     * Eats a food item
+     *
+     * @param food The food item
+     * @return True if food was eaten
+     */
     private boolean eatFoodItem(Item food) {
         if (food == null) {
             return false;
@@ -511,6 +478,12 @@ public class InventoryManager {
         return food.interact();
     }
 
+    /**
+     * Checks if an item could be food
+     *
+     * @param name The item name
+     * @return True if item could be food
+     */
     private boolean couldBeFood(String name) {
         if (name == null) return false;
 
@@ -525,10 +498,21 @@ public class InventoryManager {
         return false;
     }
 
+    /**
+     * Checks if player has food
+     *
+     * @return True if has food
+     */
     public boolean hasFood() {
         return Inventory.contains(this::isEdibleItem);
     }
 
+    /**
+     * Checks if an item is edible
+     *
+     * @param item The item
+     * @return True if item is edible
+     */
     public boolean isEdibleItem(Item item) {
         if (item == null) {
             return false;
@@ -545,6 +529,12 @@ public class InventoryManager {
         return couldBeFood(name);
     }
 
+    /**
+     * Checks if an item is valuable
+     *
+     * @param item The item
+     * @return True if item is valuable
+     */
     public boolean isValuableItem(Item item) {
         if (item == null) return false;
 
@@ -559,64 +549,12 @@ public class InventoryManager {
         return false;
     }
 
-    public boolean hasTeleportItem() {
-        for (String teleport : TELEPORT_ITEMS) {
-            if (Inventory.contains(item ->
-                    item != null && item.getName().toLowerCase().contains(teleport.toLowerCase()))) {
-                return true;
-            }
-        }
-
-        for (String teleport : TELEPORT_ITEMS) {
-            if (Equipment.contains(item ->
-                    item != null && item.getName().toLowerCase().contains(teleport.toLowerCase()))) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    public Item getTeleportItem() {
-        for (String teleport : TELEPORT_ITEMS) {
-            Item item = Inventory.get(i ->
-                    i != null && i.getName().toLowerCase().contains(teleport.toLowerCase()));
-
-            if (item != null) {
-                return item;
-            }
-        }
-
-        for (String teleport : TELEPORT_ITEMS) {
-            Item item = Equipment.get(i ->
-                    i != null && i.getName().toLowerCase().contains(teleport.toLowerCase()));
-
-            if (item != null) {
-                return item;
-            }
-        }
-
-        return null;
-    }
-
-    public boolean hasCertainTeleportItem(String teleportType) {
-        // Check inventory first
-        if (Inventory.contains(item ->
-                item != null && item.getName().toLowerCase().contains(teleportType.toLowerCase()))) {
-            return true;
-        }
-
-        // Then check equipment
-        return Equipment.contains(item ->
-                item != null && item.getName().toLowerCase().contains(teleportType.toLowerCase()));
-    }
-
-    public String getStatistics() {
-        return "Food eaten: " + foodEaten +
-                ", Items dropped: " + itemsDropped +
-                ", Items banked: " + itemsBanked;
-    }
-
+    /**
+     * Handles coin pouches
+     *
+     * @param threshold The threshold to open pouches
+     * @return True if pouches were opened
+     */
     public boolean handleCoinPouches(int threshold) {
         int pouchCount = Inventory.count("Coin pouch");
 
@@ -636,27 +574,81 @@ public class InventoryManager {
         return false;
     }
 
-    private void sleep(int min, int max) {
-        try {
-            Thread.sleep(min + (int) (Math.random() * (max - min)));
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
+    /**
+     * Checks if inventory is full
+     *
+     * @return True if inventory is full
+     */
+    public boolean isInventoryFull() {
+        return Inventory.isFull();
     }
 
+    /**
+     * Gets the number of free slots in inventory
+     *
+     * @return Number of free slots
+     */
+    public int getFreeSlots() {
+        return Inventory.emptySlotCount();
+    }
+
+    /**
+     * Gets the number of items in inventory
+     *
+     * @return Number of items
+     */
+    public int getItemCount() {
+        return Inventory.fullSlotCount();
+    }
+
+    /**
+     * Checks if there's space for n items
+     *
+     * @param n Number of items
+     * @return True if there's space
+     */
+    public boolean hasSpaceFor(int n) {
+        return Inventory.emptySlotCount() >= n;
+    }
+
+    /**
+     * Gets the number of food items eaten
+     *
+     * @return Number of food eaten
+     */
     public int getFoodEaten() {
         return foodEaten;
     }
 
+    /**
+     * Gets the number of items dropped
+     *
+     * @return Number of items dropped
+     */
     public int getItemsDropped() {
         return itemsDropped;
     }
 
+    /**
+     * Gets the number of items banked
+     *
+     * @return Number of items banked
+     */
     public int getItemsBanked() {
         return itemsBanked;
     }
 
-    public void setLocationManager(LocationManager locationManager) {
-        this.locationManager = locationManager;
+    /**
+     * Sleeps for a random time between min and max
+     *
+     * @param min Minimum time in ms
+     * @param max Maximum time in ms
+     */
+    private void sleep(int min, int max) {
+        try {
+            Thread.sleep(min + (int) (Math.random() * (max - min)));
+        } catch (InterruptedException e) {
+            System.out.println("Sleep interrupted: " + e.getMessage());
+        }
     }
 }
