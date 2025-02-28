@@ -1,4 +1,4 @@
-package org.managers;
+package org.managers.antiban;
 
 import java.awt.*;
 import java.io.File;

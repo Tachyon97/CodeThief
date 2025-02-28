@@ -1,6 +1,5 @@
 package org.managers;
 
-import org.core.config.ThievingState;
 import org.dreambot.api.methods.skills.Skill;
 import org.dreambot.api.methods.skills.SkillTracker;
 import org.dreambot.api.methods.skills.Skills;
@@ -13,13 +12,7 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 
-/**
- * Enhanced statistics tracker for CodeThief Pro
- * Tracks thieving statistics and provides a visually appealing paint
- * Updated with darker theme and improved toggle button functionality
- */
 public class StatisticsTracker {
-
     // Runtime tracking
     private long startTime;
     private long lastPaintUpdate;
@@ -29,7 +22,7 @@ public class StatisticsTracker {
     private int failedThieves;
     private int totalAttempts;
     private String currentTarget;
-    private ThievingState currentState;
+    private String currentState;
 
     // Experience tracking
     private int startXp;
@@ -57,21 +50,18 @@ public class StatisticsTracker {
     private boolean expandedPaint = false;
 
     // Paint colors - exact color scheme as requested
-    private final Color backgroundBaseColor = new Color(20, 12, 28, 230); // Darker background with opacity
-    private final Color backgroundGradientColor = new Color(30, 18, 40, 230); // Medium background with opacity
-    private final Color lightBackground = new Color(40, 25, 55, 230); // Lighter background for hover
-    private final Color headerColor = new Color(180, 140, 255); // Light purple for headers
-    private final Color textColor = new Color(230, 230, 230); // Off-white text
-    private final Color accentColor = new Color(180, 120, 220); // Purple accent (no yellow)
-    private final Color progressBarBg = new Color(20, 12, 28, 150); // Darker progress bar background
-    private final Color progressBarFg = new Color(140, 100, 200); // Purple progress bar foreground
+    private final Color backgroundBaseColor = new Color(20, 12, 28, 230);
+    private final Color backgroundGradientColor = new Color(30, 18, 40, 230);
+    private final Color lightBackground = new Color(40, 25, 55, 230);
+    private final Color headerColor = new Color(180, 140, 255);
+    private final Color textColor = new Color(230, 230, 230);
+    private final Color accentColor = new Color(180, 120, 220);
+    private final Color progressBarBg = new Color(20, 12, 28, 150);
+    private final Color progressBarFg = new Color(140, 100, 200);
 
     // Toggle button
     private Rectangle toggleButton;
 
-    /**
-     * Creates a new statistics tracker
-     */
     public StatisticsTracker() {
         this.startTime = System.currentTimeMillis();
         this.lastPaintUpdate = 0;
@@ -84,15 +74,12 @@ public class StatisticsTracker {
         this.startLevel = Skills.getRealLevel(Skill.THIEVING);
         this.targetStats = new HashMap<>();
         this.currentTarget = "None";
-        this.currentState = ThievingState.INITIALIZE;
+        this.currentState = "Initialize";
 
         // Initialize tracker for XP/hr calculations
         SkillTracker.start(Skill.THIEVING);
     }
 
-    /**
-     * Called when a thieving attempt succeeds
-     */
     public void onSuccessfulThieve() {
         successfulThieves++;
         totalAttempts++;
@@ -112,9 +99,6 @@ public class StatisticsTracker {
         estimatedProfit += estimateProfitPerThieve(currentTarget);
     }
 
-    /**
-     * Called when a thieving attempt fails
-     */
     public void onFailedThieve() {
         failedThieves++;
         totalAttempts++;
@@ -125,55 +109,26 @@ public class StatisticsTracker {
         stats.totalAttempts++;
     }
 
-    /**
-     * Updates inventory statistics
-     *
-     * @param foodEaten    Count of food eaten
-     * @param itemsDropped Count of items dropped
-     * @param itemsBanked  Count of items banked
-     */
     public void updateInventoryStats(int foodEaten, int itemsDropped, int itemsBanked) {
         this.foodEaten = foodEaten;
         this.itemsDropped = itemsDropped;
         this.itemsBanked = itemsBanked;
     }
 
-    /**
-     * Sets the current thieving target
-     *
-     * @param targetName The target name
-     */
     public void setCurrentTarget(String targetName) {
         this.currentTarget = targetName;
-
         // Initialize target stats if needed
         getTargetStatsFor(targetName);
     }
 
-    /**
-     * Sets the current script state
-     *
-     * @param state The current state
-     */
-    public void setCurrentState(ThievingState state) {
+    public void setCurrentState(String state) {
         this.currentState = state;
     }
 
-    /**
-     * Gets or creates target statistics for a specific target
-     *
-     * @param targetName The target name
-     * @return Target statistics
-     */
     private TargetStats getTargetStatsFor(String targetName) {
         return targetStats.computeIfAbsent(targetName, k -> new TargetStats());
     }
 
-    /**
-     * Draws the paint on screen
-     *
-     * @param g2d Graphics2D object
-     */
     public void drawPaint(Graphics2D g2d) {
         try {
             // Only update certain stats every 500ms to reduce CPU usage
@@ -228,9 +183,6 @@ public class StatisticsTracker {
         }
     }
 
-    /**
-     * Draws the panel background with gradient
-     */
     private void drawPanelBackground(Graphics2D g2d, int x, int y, int width, int height) {
         // Create gradient paint
         GradientPaint gradient = new GradientPaint(
@@ -249,9 +201,6 @@ public class StatisticsTracker {
         g2d.draw(roundedRect);
     }
 
-    /**
-     * Draws the header section
-     */
     private void drawHeader(Graphics2D g2d, int x, int y, int width) {
         // Draw header text
         g2d.setFont(new Font("Arial", Font.BOLD, 14)); // Smaller font
@@ -263,9 +212,6 @@ public class StatisticsTracker {
         g2d.fillRect(x + 10, y + 24, width - 20, 2);
     }
 
-    /**
-     * Draws the basic statistics section
-     */
     private void drawBasicStats(Graphics2D g2d, int x, int y, int width) {
         // Setup font - smaller font for better fit
         g2d.setFont(new Font("Arial", Font.PLAIN, 11));
@@ -276,7 +222,7 @@ public class StatisticsTracker {
         g2d.drawString("Runtime: " + runtime, x + 10, y + 15);
 
         // Current state
-        g2d.drawString("State: " + formatState(currentState), x + 10, y + 32);
+        g2d.drawString("State: " + currentState, x + 10, y + 32);
 
         // Current target
         g2d.drawString("Target: " + currentTarget, x + 10, y + 49);
@@ -302,9 +248,6 @@ public class StatisticsTracker {
         g2d.drawString("Items Stolen: " + itemsStolen, x + 10, y + 151);
     }
 
-    /**
-     * Draws the expanded statistics section when toggled
-     */
     private void drawExpandedStats(Graphics2D g2d, int x, int y, int width) {
         // Setup section header
         g2d.setFont(new Font("Arial", Font.BOLD, 14));
@@ -360,9 +303,6 @@ public class StatisticsTracker {
         g2d.drawRect(barX, barY, barWidth, barHeight);
     }
 
-    /**
-     * Formats a time in milliseconds to HH:MM:SS
-     */
     private String formatTime(long time) {
         long seconds = time / 1000;
         long minutes = seconds / 60;
@@ -371,75 +311,37 @@ public class StatisticsTracker {
         return String.format("%02d:%02d:%02d", hours, minutes % 60, seconds % 60);
     }
 
-    /**
-     * Formats a state enum to a readable string
-     */
-    private String formatState(ThievingState state) {
-        if (state == null) return "UNKNOWN";
-
-        String stateName = state.name();
-        return stateName.replace("_", " ");
-    }
-
-    /**
-     * Gets current success rate
-     */
     public double getSuccessRate() {
         if (totalAttempts == 0) return 0;
         return (double) successfulThieves / totalAttempts;
     }
 
-    /**
-     * Gets XP gained since starting
-     */
     public int getXpGained() {
         return xpGained;
     }
 
-    /**
-     * Gets current target's success rate
-     */
     public double getTargetSuccessRate() {
         TargetStats stats = targetStats.get(currentTarget);
         if (stats == null || stats.totalAttempts == 0) return 0;
         return (double) stats.successfulAttempts / stats.totalAttempts;
     }
 
-    /**
-     * Checks if the mouse is over the toggle button
-     */
     public boolean isOverToggleButton(Point mousePos) {
         return toggleButton != null && toggleButton.contains(mousePos);
     }
 
-    /**
-     * Toggles the expanded paint view
-     */
     public void toggleExpandedPaint() {
         this.expandedPaint = !this.expandedPaint;
     }
 
-    /**
-     * Sets whether the paint is in expanded view
-     *
-     * @param expanded Whether to show the expanded view
-     */
     public void setExpandedPaint(boolean expanded) {
         this.expandedPaint = expanded;
     }
 
-    /**
-     * Gets the toggle button rectangle for mouse interaction
-     *
-     * @return Rectangle representing the toggle button
-     */
     public Rectangle getToggleButton() {
         return toggleButton;
     }
 
-    /**
-     * Estimates profit per thieve based on target
-     */
     private int estimateProfitPerThieve(String targetName) {
         // Return approximate average gp per successful pickpocket
         switch (targetName) {
@@ -469,9 +371,6 @@ public class StatisticsTracker {
         }
     }
 
-    /**
-     * Gets XP per thieve based on target
-     */
     private int getXpPerThieve(String targetName) {
         switch (targetName) {
             case "Man":
@@ -500,9 +399,6 @@ public class StatisticsTracker {
         }
     }
 
-    /**
-     * Calculates profit per hour
-     */
     private long calculateProfitPerHour() {
         if (startTime == 0) return 0;
 
@@ -512,9 +408,6 @@ public class StatisticsTracker {
         return (long) (estimatedProfit * 3600000.0 / runTime);
     }
 
-    /**
-     * Helper class to track stats for each target type
-     */
     private static class TargetStats {
         int successfulAttempts;
         int failedAttempts;

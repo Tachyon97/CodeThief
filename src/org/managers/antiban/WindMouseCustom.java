@@ -1,4 +1,4 @@
-package org.managers;
+package org.managers.antiban;
 
 import org.dreambot.api.input.Mouse;
 import org.dreambot.api.input.event.impl.mouse.MouseButton;
@@ -6,12 +6,13 @@ import org.dreambot.api.input.mouse.algorithm.MouseAlgorithm;
 import org.dreambot.api.input.mouse.destination.AbstractMouseDestination;
 import org.dreambot.api.methods.Calculations;
 import org.dreambot.api.utilities.Logger;
+import org.util.ScriptUtils;
 
 import java.awt.*;
 import java.util.Random;
 
 public class WindMouseCustom implements MouseAlgorithm {
-    private Random random = new Random();
+    private final Random random = new Random();
 
     private double bezierDeviation = 1.0;
     private double overshootProbability = 0.3;
@@ -30,22 +31,6 @@ public class WindMouseCustom implements MouseAlgorithm {
         return Mouse.getDefaultMouseAlgorithm().handleClick(mouseButton);
     }
 
-    public static void sleep(int min, int max) {
-        try {
-            Thread.sleep(Calculations.random(min, max));
-        } catch (InterruptedException e) {
-            Logger.log(e.getMessage());
-        }
-    }
-
-    public static void sleep(int ms) {
-        try {
-            Thread.sleep(ms);
-        } catch (InterruptedException e) {
-            Logger.log(e.getMessage());
-        }
-    }
-
     public void mouseMovement(Point point) {
         Point curPos = Mouse.getPosition();
         boolean shouldOvershoot = random.nextDouble() < overshootProbability;
@@ -53,7 +38,7 @@ public class WindMouseCustom implements MouseAlgorithm {
         if (shouldOvershoot) {
             Point overshootPoint = getOvershootPoint(curPos, point);
             moveMouseBezier(curPos, overshootPoint);
-            sleep((int) (50 * mouseSpeed), (int) (150 * mouseSpeed));
+            ScriptUtils.sleep((int) (50 * mouseSpeed), (int) (150 * mouseSpeed));
             moveMouseBezier(overshootPoint, point);
         } else {
             moveMouseBezier(curPos, point);

@@ -1,33 +1,27 @@
 package org.managers;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Collectors;
 import org.core.config.ScriptConfiguration;
 import org.dreambot.api.methods.container.impl.Inventory;
 import org.dreambot.api.methods.container.impl.bank.Bank;
 import org.dreambot.api.methods.skills.Skill;
 import org.dreambot.api.methods.skills.Skills;
 import org.dreambot.api.wrappers.items.Item;
+import org.util.ScriptUtils;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.stream.Collectors;
-
-/**
- * Manages all inventory-related functionality including food, items, and banking
- */
 public class InventoryManager {
     private final ScriptConfiguration config;
     private LocationManager locationManager;
 
-    // Tracking stats
     private int foodEaten = 0;
     private int itemsDropped = 0;
     private int itemsBanked = 0;
     private long lastFoodCheck = 0;
 
-    // Constants
     private static final long FOOD_CHECK_COOLDOWN = 3000;
 
-    // Item keywords for identification
     private static final String[] FOOD_KEYWORDS = {
             "fish", "cake", "bread", "pizza", "pie", "stew", "wine",
             "potion", "brew", "food", "shark", "lobster", "salmon", "tuna",
@@ -40,37 +34,22 @@ public class InventoryManager {
             "necklace", "bracelet", "ring", "amulet", "clue scroll"
     };
 
-    /**
-     * Creates a new inventory manager
-     *
-     * @param config The script configuration
-     */
     public InventoryManager(ScriptConfiguration config) {
         this.config = config;
     }
 
-    /**
-     * Sets the location manager
-     *
-     * @param locationManager The location manager
-     */
     public void setLocationManager(LocationManager locationManager) {
         this.locationManager = locationManager;
     }
 
-    /**
-     * Handles a full inventory based on script configuration
-     *
-     * @return True if handled successfully
-     */
     public boolean handleFullInventory() {
         try {
             if (config.isFreestyleMode()) {
-                return dropJunkItems();
+                return executeDropStrategy(new TargetBasedDropStrategy(config.getCurrentTargetName()));
             } else if (config.isBankingEnabled()) {
-                return false; // Let script state change to walking to bank
+                return false;
             } else {
-                return dropAllExceptValuable();
+                return executeDropStrategy(new ValueBasedDropStrategy());
             }
         } catch (Exception e) {
             System.out.println("Error handling full inventory: " + e.getMessage());
@@ -78,11 +57,6 @@ public class InventoryManager {
         }
     }
 
-    /**
-     * Emergency method to drop items when other methods fail
-     *
-     * @return True if some items were dropped
-     */
     private boolean emergencyDropItems() {
         try {
             System.out.println("EMERGENCY: Attempting to drop some items to free space");
@@ -91,7 +65,7 @@ public class InventoryManager {
             for (Item item : Inventory.all()) {
                 if (item != null && !isValuableItem(item) && !isEdibleItem(item)) {
                     item.interact("Drop");
-                    sleep(100, 200);
+                    ScriptUtils.sleep(100, 200);
                     itemsDropped++;
 
                     if (initialCount - Inventory.fullSlotCount() >= 3) {
@@ -107,11 +81,6 @@ public class InventoryManager {
         }
     }
 
-    /**
-     * Handles banking operations
-     *
-     * @return True if banking was successful
-     */
     public boolean handleBanking() {
         try {
             if (!Bank.isOpen()) {
@@ -120,26 +89,25 @@ public class InventoryManager {
                     System.out.println("Failed to open bank");
                     return false;
                 }
-                sleep(600, 900);
+                ScriptUtils.sleep(600, 900);
             }
 
             System.out.println("Depositing all items...");
             int itemsBeforeDeposit = Inventory.fullSlotCount();
 
             if (Bank.depositAllItems()) {
-                sleep(600, 900);
+                ScriptUtils.sleep(600, 900);
                 itemsBanked += (itemsBeforeDeposit - Inventory.fullSlotCount());
                 System.out.println("Deposited " + (itemsBeforeDeposit - Inventory.fullSlotCount()) + " items");
             } else {
                 System.out.println("Failed to deposit items");
             }
 
-            // Withdraw food based on preferences
             withdrawFoodBasedOnPriority();
 
             System.out.println("Closing bank...");
             Bank.close();
-            sleep(300, 600);
+            ScriptUtils.sleep(300, 600);
 
             return hasFood();
         } catch (Exception e) {
@@ -148,11 +116,6 @@ public class InventoryManager {
         }
     }
 
-    /**
-     * Withdraws food based on configured priorities
-     *
-     * @return True if food was withdrawn
-     */
     private boolean withdrawFoodBasedOnPriority() {
         List<String> foodPriorities = config.getFoodItems();
 
@@ -163,7 +126,6 @@ public class InventoryManager {
 
         System.out.println("Food priorities: " + foodPriorities);
 
-        // Try primary food first
         String primaryFood = foodPriorities.get(0);
         System.out.println("Trying primary food: " + primaryFood);
 
@@ -172,7 +134,6 @@ public class InventoryManager {
             return true;
         }
 
-        // Try alternative foods
         System.out.println("Primary food not found, trying alternatives...");
         for (int i = 1; i < foodPriorities.size(); i++) {
             String altFood = foodPriorities.get(i);
@@ -182,27 +143,17 @@ public class InventoryManager {
             }
         }
 
-        // Last resort - any food
         System.out.println("No configured food found, trying any food...");
         return withdrawAnyFood();
     }
 
-    /**
-     * Tries to withdraw a specific food
-     *
-     * @param foodName The food name
-     * @param amount   The amount to withdraw
-     * @return True if food was withdrawn
-     */
     private boolean tryWithdrawFood(String foodName, int amount) {
-        // Try exact match first
         if (Bank.contains(item ->
                 item != null &&
                         item.getName().equalsIgnoreCase(foodName))) {
             return Bank.withdraw(foodName, amount);
         }
 
-        // Try partial match
         Item bankItem = Bank.get(item ->
                 item != null &&
                         item.getName().toLowerCase().contains(foodName.toLowerCase()));
@@ -214,11 +165,6 @@ public class InventoryManager {
         return false;
     }
 
-    /**
-     * Withdraws any available food
-     *
-     * @return True if any food was withdrawn
-     */
     private boolean withdrawAnyFood() {
         for (String keyword : FOOD_KEYWORDS) {
             Item foodItem = Bank.get(item ->
@@ -229,7 +175,7 @@ public class InventoryManager {
                 System.out.println("Found food item: " + foodItem.getName());
                 if (Bank.withdraw(foodItem.getName(), 10)) {
                     System.out.println("Withdrew food: " + foodItem.getName());
-                    sleep(300, 500);
+                    ScriptUtils.sleep(300, 500);
                     return true;
                 }
             }
@@ -239,135 +185,13 @@ public class InventoryManager {
         return false;
     }
 
-    /**
-     * Drops junk items based on target
-     *
-     * @return True if any items were dropped
-     */
-    public boolean dropJunkItems() {
-        String currentTarget = config.getCurrentTargetName();
-
-        if (currentTarget.equals("Master Farmer")) {
-            return dropJunkSeeds();
-        } else if (currentTarget.toLowerCase().contains("stall")) {
-            return dropStallJunk();
-        } else {
-            return dropAllExceptValuable();
-        }
-    }
-
-    /**
-     * Drops junk seeds for Master Farmer pickpocketing
-     *
-     * @return True if any seeds were dropped
-     */
-    private boolean dropJunkSeeds() {
-        String[] junkSeeds = {
-                "potato seed", "onion seed", "cabbage seed", "tomato seed",
-                "sweetcorn seed", "strawberry seed", "gardening seed", "barley seed",
-                "hammerstone seed", "asgarnian seed", "jute seed", "yanillian seed",
-                "krandorian seed", "wildblood seed"
-        };
-
-        int itemsDroppedCount = 0;
-
-        for (String seedName : junkSeeds) {
-            List<Item> seeds = Inventory.all(item ->
-                    item != null && item.getName().toLowerCase().contains(seedName.toLowerCase()));
-
-            for (Item seed : seeds) {
-                if (seed != null && seed.interact("Drop")) {
-                    sleep(100, 200);
-                    itemsDroppedCount++;
-                }
-            }
-        }
-
-        if (itemsDroppedCount > 0) {
-            itemsDropped += itemsDroppedCount;
-            System.out.println("Dropped " + itemsDroppedCount + " junk seeds");
-        }
-
-        return itemsDroppedCount > 0;
-    }
-
-    /**
-     * Drops junk items from stalls
-     *
-     * @return True if any items were dropped
-     */
-    private boolean dropStallJunk() {
-        String stallType = config.getCurrentTargetName();
-        List<String> valuableItems = new ArrayList<>();
-
-        // Determine stall-specific valuable items
-        switch (stallType) {
-            case "Gem Stall":
-                valuableItems.add("sapphire");
-                valuableItems.add("emerald");
-                valuableItems.add("ruby");
-                valuableItems.add("diamond");
-                break;
-            case "Silk Stall":
-                valuableItems.add("silk");
-                break;
-            case "Silver Stall":
-                valuableItems.add("silver");
-                break;
-            case "Cake Stall":
-                valuableItems.add("cake");
-                break;
-            case "Tea Stall":
-                valuableItems.add("tea");
-                valuableItems.add("cup");
-                break;
-        }
-
-        // Always keep coins and food
-        valuableItems.add("coin");
-        config.getFoodItems().forEach(food -> valuableItems.add(food.toLowerCase()));
-
-        return dropAllExcept(valuableItems);
-    }
-
-    /**
-     * Drops all items except valuable ones
-     *
-     * @return True if any items were dropped
-     */
-    private boolean dropAllExceptValuable() {
-        List<String> valuableItems = new ArrayList<>();
-
-        for (String keyword : VALUABLE_KEYWORDS) {
-            valuableItems.add(keyword.toLowerCase());
-        }
-
-        config.getFoodItems().forEach(food -> valuableItems.add(food.toLowerCase()));
-
-        return dropAllExcept(valuableItems);
-    }
-
-    /**
-     * Drops all items except those matching the given list
-     *
-     * @param itemsToKeep List of item name keywords to keep
-     * @return True if any items were dropped
-     */
-    private boolean dropAllExcept(List<String> itemsToKeep) {
-        List<Item> itemsToDrop = Inventory.all().stream()
-                .filter(item -> item != null)
-                .filter(item -> {
-                    String itemName = item.getName().toLowerCase();
-                    return itemsToKeep.stream().noneMatch(keepName ->
-                            keepName != null && itemName.contains(keepName.toLowerCase()));
-                })
-                .collect(Collectors.toList());
-
+    private boolean executeDropStrategy(DropStrategy strategy) {
+        List<Item> itemsToDrop = strategy.getItemsToDrop(Inventory.all());
         int itemsDroppedCount = 0;
 
         for (Item item : itemsToDrop) {
             if (item != null && item.interact("Drop")) {
-                sleep(100, 200);
+                ScriptUtils.sleep(100, 200);
                 itemsDroppedCount++;
             }
         }
@@ -380,11 +204,6 @@ public class InventoryManager {
         return itemsDroppedCount > 0;
     }
 
-    /**
-     * Checks if player needs to heal
-     *
-     * @return True if health is below threshold
-     */
     public boolean needToHeal() {
         if (System.currentTimeMillis() - lastFoodCheck < FOOD_CHECK_COOLDOWN) {
             return false;
@@ -399,17 +218,11 @@ public class InventoryManager {
         return healthPercent < config.getHealthThreshold();
     }
 
-    /**
-     * Eats food to heal
-     *
-     * @return True if food was eaten
-     */
     public boolean eatFood() {
         if (!hasFood()) {
             return false;
         }
 
-        // Try to eat configured foods first
         Item foodItem = findFoodItemToEat();
         if (foodItem != null) {
             System.out.println("Eating food: " + foodItem.getName());
@@ -422,13 +235,9 @@ public class InventoryManager {
         return false;
     }
 
-    /**
-     * Finds a food item to eat
-     */
     private Item findFoodItemToEat() {
         List<String> configuredFoods = config.getFoodItems();
 
-        // Try exact matches first
         for (String foodName : configuredFoods) {
             Item food = Inventory.get(item ->
                     item != null && item.getName().equalsIgnoreCase(foodName));
@@ -438,7 +247,6 @@ public class InventoryManager {
             }
         }
 
-        // Try partial matches
         for (String foodName : configuredFoods) {
             Item food = Inventory.get(item ->
                     item != null && item.getName().toLowerCase().contains(foodName.toLowerCase()));
@@ -448,16 +256,9 @@ public class InventoryManager {
             }
         }
 
-        // Try any food as last resort
         return Inventory.get(this::isEdibleItem);
     }
 
-    /**
-     * Eats a food item
-     *
-     * @param food The food item
-     * @return True if food was eaten
-     */
     private boolean eatFoodItem(Item food) {
         if (food == null) {
             return false;
@@ -478,12 +279,6 @@ public class InventoryManager {
         return food.interact();
     }
 
-    /**
-     * Checks if an item could be food
-     *
-     * @param name The item name
-     * @return True if item could be food
-     */
     private boolean couldBeFood(String name) {
         if (name == null) return false;
 
@@ -498,21 +293,10 @@ public class InventoryManager {
         return false;
     }
 
-    /**
-     * Checks if player has food
-     *
-     * @return True if has food
-     */
     public boolean hasFood() {
         return Inventory.contains(this::isEdibleItem);
     }
 
-    /**
-     * Checks if an item is edible
-     *
-     * @param item The item
-     * @return True if item is edible
-     */
     public boolean isEdibleItem(Item item) {
         if (item == null) {
             return false;
@@ -529,12 +313,6 @@ public class InventoryManager {
         return couldBeFood(name);
     }
 
-    /**
-     * Checks if an item is valuable
-     *
-     * @param item The item
-     * @return True if item is valuable
-     */
     public boolean isValuableItem(Item item) {
         if (item == null) return false;
 
@@ -549,12 +327,6 @@ public class InventoryManager {
         return false;
     }
 
-    /**
-     * Handles coin pouches
-     *
-     * @param threshold The threshold to open pouches
-     * @return True if pouches were opened
-     */
     public boolean handleCoinPouches(int threshold) {
         int pouchCount = Inventory.count("Coin pouch");
 
@@ -574,81 +346,136 @@ public class InventoryManager {
         return false;
     }
 
-    /**
-     * Checks if inventory is full
-     *
-     * @return True if inventory is full
-     */
     public boolean isInventoryFull() {
         return Inventory.isFull();
     }
 
-    /**
-     * Gets the number of free slots in inventory
-     *
-     * @return Number of free slots
-     */
     public int getFreeSlots() {
         return Inventory.emptySlotCount();
     }
 
-    /**
-     * Gets the number of items in inventory
-     *
-     * @return Number of items
-     */
     public int getItemCount() {
         return Inventory.fullSlotCount();
     }
 
-    /**
-     * Checks if there's space for n items
-     *
-     * @param n Number of items
-     * @return True if there's space
-     */
     public boolean hasSpaceFor(int n) {
         return Inventory.emptySlotCount() >= n;
     }
 
-    /**
-     * Gets the number of food items eaten
-     *
-     * @return Number of food eaten
-     */
     public int getFoodEaten() {
         return foodEaten;
     }
 
-    /**
-     * Gets the number of items dropped
-     *
-     * @return Number of items dropped
-     */
     public int getItemsDropped() {
         return itemsDropped;
     }
 
-    /**
-     * Gets the number of items banked
-     *
-     * @return Number of items banked
-     */
     public int getItemsBanked() {
         return itemsBanked;
     }
 
-    /**
-     * Sleeps for a random time between min and max
-     *
-     * @param min Minimum time in ms
-     * @param max Maximum time in ms
-     */
-    private void sleep(int min, int max) {
-        try {
-            Thread.sleep(min + (int) (Math.random() * (max - min)));
-        } catch (InterruptedException e) {
-            System.out.println("Sleep interrupted: " + e.getMessage());
+    private interface DropStrategy {
+        List<Item> getItemsToDrop(List<Item> inventory);
+    }
+
+    private class ValueBasedDropStrategy implements DropStrategy {
+        @Override
+        public List<Item> getItemsToDrop(List<Item> inventory) {
+            List<String> valuableItems = new ArrayList<>();
+
+            for (String keyword : VALUABLE_KEYWORDS) {
+                valuableItems.add(keyword.toLowerCase());
+            }
+
+            config.getFoodItems().forEach(food -> valuableItems.add(food.toLowerCase()));
+
+            return inventory.stream()
+                    .filter(item -> item != null)
+                    .filter(item -> {
+                        String itemName = item.getName().toLowerCase();
+                        return valuableItems.stream().noneMatch(keepName ->
+                                keepName != null && itemName.contains(keepName.toLowerCase()));
+                    })
+                    .collect(Collectors.toList());
+        }
+    }
+
+    private class TargetBasedDropStrategy implements DropStrategy {
+        private final String targetName;
+
+        public TargetBasedDropStrategy(String targetName) {
+            this.targetName = targetName;
+        }
+
+        @Override
+        public List<Item> getItemsToDrop(List<Item> inventory) {
+            if (targetName.equals("Master Farmer")) {
+                return getJunkSeedsDropList(inventory);
+            } else if (targetName.toLowerCase().contains("stall")) {
+                return getStallJunkDropList(inventory);
+            } else {
+                return new ValueBasedDropStrategy().getItemsToDrop(inventory);
+            }
+        }
+
+        private List<Item> getJunkSeedsDropList(List<Item> inventory) {
+            String[] junkSeeds = {
+                    "potato seed", "onion seed", "cabbage seed", "tomato seed",
+                    "sweetcorn seed", "strawberry seed", "gardening seed", "barley seed",
+                    "hammerstone seed", "asgarnian seed", "jute seed", "yanillian seed",
+                    "krandorian seed", "wildblood seed"
+            };
+
+            return inventory.stream()
+                    .filter(item -> item != null)
+                    .filter(item -> {
+                        String itemName = item.getName().toLowerCase();
+                        for (String seedName : junkSeeds) {
+                            if (itemName.contains(seedName.toLowerCase())) {
+                                return true;
+                            }
+                        }
+                        return false;
+                    })
+                    .collect(Collectors.toList());
+        }
+
+        private List<Item> getStallJunkDropList(List<Item> inventory) {
+            List<String> valuableItems = new ArrayList<>();
+
+            switch (targetName) {
+                case "Gem Stall":
+                    valuableItems.add("sapphire");
+                    valuableItems.add("emerald");
+                    valuableItems.add("ruby");
+                    valuableItems.add("diamond");
+                    break;
+                case "Silk Stall":
+                    valuableItems.add("silk");
+                    break;
+                case "Silver Stall":
+                    valuableItems.add("silver");
+                    break;
+                case "Cake Stall":
+                    valuableItems.add("cake");
+                    break;
+                case "Tea Stall":
+                    valuableItems.add("tea");
+                    valuableItems.add("cup");
+                    break;
+            }
+
+            valuableItems.add("coin");
+            config.getFoodItems().forEach(food -> valuableItems.add(food.toLowerCase()));
+
+            return inventory.stream()
+                    .filter(item -> item != null)
+                    .filter(item -> {
+                        String itemName = item.getName().toLowerCase();
+                        return valuableItems.stream().noneMatch(keepName ->
+                                keepName != null && itemName.contains(keepName.toLowerCase()));
+                    })
+                    .collect(Collectors.toList());
         }
     }
 }

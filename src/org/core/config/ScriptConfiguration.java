@@ -58,7 +58,7 @@ public class ScriptConfiguration {
 
         // Initialize food item list
         this.foodItems = Arrays.asList("Cake", "Bread", "Fish", "Shark", "Lobster", "Salmon", "Tuna", "Monkfish",
-                "Food", "Potion", "Brew", "Wine");
+                "Food", "Wine");
     }
 
     // Getters and setters remain the same
@@ -152,17 +152,10 @@ public class ScriptConfiguration {
         this.foodItems = foodItems;
     }
 
-    /**
-     * Gets all available thieving method names.
-     * Updated to include Summer Garden as an option.
-     *
-     * @return String array of thieving method names
-     */
     public String[] getAllThievingMethods() {
         return new String[]{
-                "Man", "Woman", "Farmer", "Warrior", "Guard", "Master Farmer",
-                "Knight of Ardougne", "Paladin", "Hero",
-                "Cake Stall", "Tea Stall", "Summer Garden"
+                "Man", "Woman", "Warrior", "Guard", "Master Farmer",
+                "Knight of Ardougne", "Paladin", "Hero"
         };
     }
 
