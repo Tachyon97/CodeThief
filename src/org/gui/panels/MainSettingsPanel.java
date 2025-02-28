@@ -1,6 +1,6 @@
 package org.gui.panels;
 
-import org.ScriptConfiguration;
+import org.core.config.ScriptConfiguration;
 import org.dreambot.api.methods.skills.Skill;
 import org.dreambot.api.methods.skills.Skills;
 import org.gui.util.GUIUtils;
@@ -9,43 +9,26 @@ import org.gui.util.StyleFactory;
 import javax.swing.*;
 import java.awt.*;
 
-/**
- * Panel for main script settings like thieving method and auto-progression
- * Updated to remove non-working stall options
- */
 public class MainSettingsPanel extends JPanel {
     private final ScriptConfiguration config;
-
-    // GUI components
     private JComboBox<String> methodSelector;
     private JCheckBox autoProgressionCheckbox;
     private JCheckBox freestyleModeCheckbox;
     private JCheckBox bankingEnabledCheckbox;
     private JCheckBox preferStallsCheckbox;
 
-    /**
-     * Creates a new main settings panel
-     *
-     * @param config The script configuration
-     */
     public MainSettingsPanel(ScriptConfiguration config) {
         this.config = config;
-
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
         setBackground(StyleFactory.BG_DARK_COLOR);
-        setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
-
+        setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         initializeComponents();
     }
 
-    /**
-     * Initializes all panel components
-     */
     private void initializeComponents() {
-        // Info panel explaining this section
         JPanel infoPanel = new JPanel(new BorderLayout());
         infoPanel.setBackground(StyleFactory.BG_MEDIUM_COLOR);
-        infoPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        infoPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
         JLabel titleLabel = GUIUtils.createStyledLabel("Main Configuration");
         titleLabel.setFont(StyleFactory.HEADER_FONT);
@@ -58,14 +41,12 @@ public class MainSettingsPanel extends JPanel {
         infoPanel.add(titleLabel, BorderLayout.NORTH);
         infoPanel.add(descLabel, BorderLayout.CENTER);
         add(infoPanel);
-        add(Box.createVerticalStrut(15));
-
-        // Settings panel with all controls
-        JPanel settingsPanel = createSettingsPanel();
-        add(settingsPanel);
         add(Box.createVerticalStrut(10));
 
-        // Add auto-progression explanation
+        JPanel settingsPanel = createSettingsPanel();
+        add(settingsPanel);
+        add(Box.createVerticalStrut(8));
+
         JPanel explanationPanel = new JPanel(new BorderLayout());
         explanationPanel.setBackground(StyleFactory.BG_MEDIUM_COLOR);
         explanationPanel.setBorder(BorderFactory.createLineBorder(StyleFactory.BORDER_COLOR));
@@ -80,18 +61,17 @@ public class MainSettingsPanel extends JPanel {
         explanationText.setLineWrap(true);
         explanationText.setWrapStyleWord(true);
         explanationText.setEditable(false);
-        explanationText.setBorder(BorderFactory.createEmptyBorder(10, 10, 5, 10));
+        explanationText.setBorder(BorderFactory.createEmptyBorder(8, 8, 5, 8));
 
         JLabel subLabel = GUIUtils.createStyledSubtextLabel(
                 "With Auto-Progression enabled, the Method selector above will be ignored."
         );
-        subLabel.setBorder(BorderFactory.createEmptyBorder(0, 10, 10, 10));
+        subLabel.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
 
         explanationPanel.add(explanationText, BorderLayout.CENTER);
         explanationPanel.add(subLabel, BorderLayout.SOUTH);
         add(explanationPanel);
 
-        // Add new stall limitation notice
         JPanel stallInfoPanel = new JPanel(new BorderLayout());
         stallInfoPanel.setBackground(StyleFactory.BG_MEDIUM_COLOR);
         stallInfoPanel.setBorder(BorderFactory.createLineBorder(StyleFactory.BORDER_COLOR));
@@ -101,18 +81,17 @@ public class MainSettingsPanel extends JPanel {
                         "These have been thoroughly tested and optimized for reliable performance."
         );
         stallInfoText.setFont(StyleFactory.SMALL_FONT);
-        stallInfoText.setForeground(new Color(255, 165, 0)); // Orange color for notice
+        stallInfoText.setForeground(new Color(255, 165, 0));
         stallInfoText.setBackground(StyleFactory.BG_MEDIUM_COLOR);
         stallInfoText.setLineWrap(true);
         stallInfoText.setWrapStyleWord(true);
         stallInfoText.setEditable(false);
-        stallInfoText.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        stallInfoText.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
         stallInfoPanel.add(stallInfoText, BorderLayout.CENTER);
-        add(Box.createVerticalStrut(10));
+        add(Box.createVerticalStrut(8));
         add(stallInfoPanel);
 
-        // Add view current level button
         JPanel levelPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
         levelPanel.setBackground(StyleFactory.BG_DARK_COLOR);
         levelPanel.setOpaque(true);
@@ -122,25 +101,20 @@ public class MainSettingsPanel extends JPanel {
         viewLevelButton.setPreferredSize(new Dimension(150, 30));
         viewLevelButton.addActionListener(e -> showCurrentLevel());
         levelPanel.add(viewLevelButton);
-        add(Box.createVerticalStrut(10));
+        add(Box.createVerticalStrut(8));
         add(levelPanel);
 
-        // Setup action listeners
         setupActionListeners();
     }
 
-    /**
-     * Creates the settings panel with all main controls
-     */
     private JPanel createSettingsPanel() {
         JPanel settingsPanel = new JPanel(new GridBagLayout());
         settingsPanel.setBackground(StyleFactory.BG_DARK_COLOR);
         GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(8, 8, 8, 8);
+        gbc.insets = new Insets(5, 5, 5, 5);
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.anchor = GridBagConstraints.WEST;
 
-        // Method selector with enhanced styling
         gbc.gridx = 0;
         gbc.gridy = 0;
         JLabel methodLabel = GUIUtils.createStyledLabel("Thieving Method:");
@@ -148,16 +122,14 @@ public class MainSettingsPanel extends JPanel {
         settingsPanel.add(methodLabel, gbc);
 
         gbc.gridx = 1;
-        gbc.weightx = 1.0; // Allow component to expand
-        // Use the updated available methods list from ScriptConfiguration
+        gbc.weightx = 1.0;
         methodSelector = GUIUtils.createStyledComboBox(config.getAllThievingMethods());
         methodSelector.setPreferredSize(new Dimension(220, 30));
         methodSelector.setMinimumSize(new Dimension(220, 30));
         methodSelector.setToolTipText("Higher level methods give better XP and loot");
         settingsPanel.add(methodSelector, gbc);
-        gbc.weightx = 0.0; // Reset weight
+        gbc.weightx = 0.0;
 
-        // Auto-progression checkbox
         gbc.gridx = 0;
         gbc.gridy = 1;
         JLabel autoProgressLabel = GUIUtils.createStyledLabel("Auto-Progression:");
@@ -172,7 +144,6 @@ public class MainSettingsPanel extends JPanel {
         autoProgressionCheckbox.setBackground(StyleFactory.BG_DARK_COLOR);
         settingsPanel.add(autoProgressionCheckbox, gbc);
 
-        // Prefer stalls checkbox
         gbc.gridx = 0;
         gbc.gridy = 2;
         JLabel stallsLabel = GUIUtils.createStyledLabel("Prefer Stalls:");
@@ -186,7 +157,6 @@ public class MainSettingsPanel extends JPanel {
         preferStallsCheckbox.setBackground(StyleFactory.BG_DARK_COLOR);
         settingsPanel.add(preferStallsCheckbox, gbc);
 
-        // Add separator
         gbc.gridx = 0;
         gbc.gridy = 3;
         gbc.gridwidth = 2;
@@ -214,7 +184,6 @@ public class MainSettingsPanel extends JPanel {
         settingsPanel.add(separatorPanel, gbc);
         gbc.gridwidth = 1;
 
-        // Freestyle mode checkbox
         gbc.gridx = 0;
         gbc.gridy = 4;
         JLabel freestyleLabel = GUIUtils.createStyledLabel("Freestyle Mode:");
@@ -228,7 +197,6 @@ public class MainSettingsPanel extends JPanel {
         freestyleModeCheckbox.setBackground(StyleFactory.BG_DARK_COLOR);
         settingsPanel.add(freestyleModeCheckbox, gbc);
 
-        // Banking enabled checkbox
         gbc.gridx = 0;
         gbc.gridy = 5;
         JLabel bankingLabel = GUIUtils.createStyledLabel("Enable Banking:");
@@ -243,7 +211,6 @@ public class MainSettingsPanel extends JPanel {
         bankingEnabledCheckbox.setBackground(StyleFactory.BG_DARK_COLOR);
         settingsPanel.add(bankingEnabledCheckbox, gbc);
 
-        // Wrap settings in a proper panel for layout
         JPanel settingsWrapper = new JPanel(new BorderLayout());
         settingsWrapper.setBackground(StyleFactory.BG_DARK_COLOR);
         settingsWrapper.add(settingsPanel, BorderLayout.NORTH);
@@ -251,11 +218,7 @@ public class MainSettingsPanel extends JPanel {
         return settingsWrapper;
     }
 
-    /**
-     * Setup action listeners for component interactions
-     */
     private void setupActionListeners() {
-        // Freestyle mode handling
         freestyleModeCheckbox.addActionListener(e -> {
             if (freestyleModeCheckbox.isSelected()) {
                 bankingEnabledCheckbox.setSelected(false);
@@ -287,7 +250,6 @@ public class MainSettingsPanel extends JPanel {
             this.repaint();
         });
 
-        // Auto progression handling
         autoProgressionCheckbox.addActionListener(e -> {
             boolean autoProgressEnabled = autoProgressionCheckbox.isSelected();
             methodSelector.setEnabled(!autoProgressEnabled);
@@ -303,7 +265,6 @@ public class MainSettingsPanel extends JPanel {
                 }
             }
 
-            // Update appearance based on enabled state
             if (autoProgressEnabled) {
                 methodSelector.setForeground(StyleFactory.DISABLED_COLOR);
                 methodSelector.setBackground(StyleFactory.BG_MEDIUM_COLOR.darker());
@@ -316,22 +277,45 @@ public class MainSettingsPanel extends JPanel {
             this.repaint();
         });
 
-        // Trigger initial states
         SwingUtilities.invokeLater(() -> {
             autoProgressionCheckbox.getActionListeners()[0].actionPerformed(null);
             freestyleModeCheckbox.getActionListeners()[0].actionPerformed(null);
         });
     }
 
-    /**
-     * Shows a dialog with current thieving level information
-     */
+    public void applySettings() {
+        // Apply configuration settings to UI components
+        if (config.getCurrentTargetName() != null) {
+            methodSelector.setSelectedItem(config.getCurrentTargetName());
+        }
+
+        autoProgressionCheckbox.setSelected(config.isAutoProgressionEnabled());
+        preferStallsCheckbox.setSelected(config.preferStalls());
+        freestyleModeCheckbox.setSelected(config.isFreestyleMode());
+        bankingEnabledCheckbox.setSelected(config.isBankingEnabled());
+
+        // Trigger action listeners to update dependent UI elements
+        for (java.awt.event.ActionListener listener : autoProgressionCheckbox.getActionListeners()) {
+            listener.actionPerformed(null);
+        }
+
+        for (java.awt.event.ActionListener listener : freestyleModeCheckbox.getActionListeners()) {
+            listener.actionPerformed(null);
+        }
+
+        System.out.println("[MainSettingsPanel] Applied settings to UI: " +
+                "target=" + config.getCurrentTargetName() +
+                ", autoprogression=" + config.isAutoProgressionEnabled() +
+                ", preferStalls=" + config.preferStalls() +
+                ", freestyle=" + config.isFreestyleMode() +
+                ", banking=" + config.isBankingEnabled());
+    }
+
     private void showCurrentLevel() {
         try {
             int thievingLevel = Skills.getRealLevel(Skill.THIEVING);
             String optimalTarget = config.determineOptimalTarget(thievingLevel);
 
-            // Show level and recommended target
             JOptionPane.showMessageDialog(this,
                     "Current Thieving Level: " + thievingLevel + "\n" +
                             "Recommended Target: " + optimalTarget + "\n\n" +
@@ -346,9 +330,6 @@ public class MainSettingsPanel extends JPanel {
         }
     }
 
-    /**
-     * Saves panel settings to the configuration object
-     */
     public void saveSettings() {
         config.setCurrentTargetName((String) methodSelector.getSelectedItem());
         config.setAutoProgressionEnabled(autoProgressionCheckbox.isSelected());
@@ -357,11 +338,6 @@ public class MainSettingsPanel extends JPanel {
         config.setPreferStalls(preferStallsCheckbox.isSelected());
     }
 
-    /**
-     * Validates panel settings and returns any errors
-     *
-     * @return Error message or null if valid
-     */
     public String validateSettings() {
         if (!autoProgressionCheckbox.isSelected() && methodSelector.getSelectedItem() == null) {
             return "Thieving Method must be selected when Auto-Progression is disabled";

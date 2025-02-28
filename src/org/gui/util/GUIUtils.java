@@ -12,18 +12,11 @@ import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 
-/**
- * Utility methods for GUI components
- */
 public class GUIUtils {
 
     private GUIUtils() {
-        // Private constructor to prevent instantiation
     }
 
-    /**
-     * Creates a styled label
-     */
     public static JLabel createStyledLabel(String text) {
         JLabel label = new JLabel(text);
         label.setFont(StyleFactory.LABEL_FONT);
@@ -31,9 +24,6 @@ public class GUIUtils {
         return label;
     }
 
-    /**
-     * Creates a smaller styled label for subtext
-     */
     public static JLabel createStyledSubtextLabel(String text) {
         JLabel label = new JLabel(text);
         label.setFont(StyleFactory.SMALL_FONT);
@@ -41,9 +31,6 @@ public class GUIUtils {
         return label;
     }
 
-    /**
-     * Creates a styled checkbox
-     */
     public static JCheckBox createStyledCheckBox() {
         JCheckBox checkBox = new JCheckBox();
         checkBox.setBackground(StyleFactory.BG_DARK_COLOR);
@@ -54,16 +41,12 @@ public class GUIUtils {
         return checkBox;
     }
 
-    /**
-     * Creates a styled combo box
-     */
     public static JComboBox<String> createStyledComboBox(String[] items) {
         JComboBox<String> comboBox = new JComboBox<>(items);
         comboBox.setFont(StyleFactory.LABEL_FONT);
         comboBox.setForeground(StyleFactory.TEXT_COLOR);
         comboBox.setBackground(StyleFactory.BG_MEDIUM_COLOR);
 
-        // Custom renderer for dropdown items
         comboBox.setRenderer(new DefaultListCellRenderer() {
             @Override
             public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
@@ -85,9 +68,6 @@ public class GUIUtils {
         return comboBox;
     }
 
-    /**
-     * Creates a styled slider
-     */
     public static JSlider createStyledSlider(int min, int max, int value) {
         JSlider slider = new JSlider(min, max, value);
         slider.setFont(StyleFactory.SMALL_FONT);
@@ -97,9 +77,6 @@ public class GUIUtils {
         return slider;
     }
 
-    /**
-     * Creates a styled scroll pane
-     */
     public static JScrollPane createStyledScrollPane(Component view) {
         JScrollPane scrollPane = new JScrollPane(view);
         scrollPane.setBorder(BorderFactory.createLineBorder(StyleFactory.BORDER_COLOR));
@@ -108,9 +85,6 @@ public class GUIUtils {
         return scrollPane;
     }
 
-    /**
-     * Creates a styled button
-     */
     public static JButton createStyledButton(String text) {
         JButton button = new JButton(text);
         button.setFont(StyleFactory.BUTTON_FONT);
@@ -119,7 +93,6 @@ public class GUIUtils {
         button.setBorder(BorderFactory.createEmptyBorder(10, 20, 10, 20));
         button.setFocusPainted(false);
 
-        // Add hover effect
         button.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseEntered(MouseEvent e) {
@@ -135,9 +108,6 @@ public class GUIUtils {
         return button;
     }
 
-    /**
-     * Creates a section panel with a title border
-     */
     public static JPanel createSectionPanel(String title) {
         JPanel panel = new JPanel();
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
@@ -152,19 +122,16 @@ public class GUIUtils {
                 StyleFactory.HEADER_COLOR
         );
 
-        Border emptyBorder = BorderFactory.createEmptyBorder(10, 10, 10, 10);
+        Border emptyBorder = BorderFactory.createEmptyBorder(6, 6, 6, 6);
         panel.setBorder(new CompoundBorder(titledBorder, emptyBorder));
 
         return panel;
     }
 
-    /**
-     * Creates an information panel with title and description
-     */
     public static JPanel createInfoPanel(String title, String description) {
         JPanel panel = new JPanel(new BorderLayout());
         panel.setBackground(StyleFactory.BG_MEDIUM_COLOR);
-        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        panel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
         JLabel titleLabel = createStyledLabel(title);
         titleLabel.setFont(StyleFactory.HEADER_FONT);
@@ -178,9 +145,6 @@ public class GUIUtils {
         return panel;
     }
 
-    /**
-     * Creates an explanation panel with main text and subtext
-     */
     public static JPanel createExplanationPanel(String mainText, String subText) {
         JPanel panel = new JPanel(new BorderLayout());
         panel.setBackground(StyleFactory.BG_MEDIUM_COLOR);
@@ -193,10 +157,10 @@ public class GUIUtils {
         explanationText.setLineWrap(true);
         explanationText.setWrapStyleWord(true);
         explanationText.setEditable(false);
-        explanationText.setBorder(BorderFactory.createEmptyBorder(10, 10, 5, 10));
+        explanationText.setBorder(BorderFactory.createEmptyBorder(8, 8, 5, 8));
 
         JLabel subLabel = createStyledSubtextLabel(subText);
-        subLabel.setBorder(BorderFactory.createEmptyBorder(0, 10, 10, 10));
+        subLabel.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
 
         panel.add(explanationText, BorderLayout.CENTER);
         panel.add(subLabel, BorderLayout.SOUTH);
@@ -204,9 +168,6 @@ public class GUIUtils {
         return panel;
     }
 
-    /**
-     * Creates a labeled separator for sections
-     */
     public static JComponent createSeparator(String text) {
         JPanel panel = new JPanel(new GridBagLayout());
         panel.setBackground(StyleFactory.BG_DARK_COLOR);
@@ -232,22 +193,14 @@ public class GUIUtils {
         return panel;
     }
 
-    /**
-     * Forces the GUI to properly render all components
-     */
     public static void forceRender(JFrame frame) {
-        // Force component validation
         frame.validate();
-
-        // Force a repaint
         frame.repaint();
 
-        // Schedule another validation and repaint after GUI is visible
         SwingUtilities.invokeLater(() -> {
             frame.validate();
             frame.repaint();
 
-            // Force validation on all tabs
             Component[] components = frame.getContentPane().getComponents();
             for (Component component : components) {
                 if (component instanceof JTabbedPane) {

@@ -1,10 +1,11 @@
-package org;
+package org.core.config;
 
 import java.util.Arrays;
 import java.util.List;
 
 /**
  * Manages all configuration options for the thieving script.
+ * Updated to include Summer Garden as a thieving option.
  */
 public class ScriptConfiguration {
     // Main settings
@@ -16,11 +17,7 @@ public class ScriptConfiguration {
     private boolean configured;
     private boolean preferStalls;
 
-    // Rogues' Den settings
-    private boolean roguesDenEnabled;
-    private boolean stopAfterFullOutfit;
-    private boolean useStaminaPotions;
-    private int maxMazeRuns;
+    private boolean useRoguesOutfit;
 
 
     // Anti-ban settings
@@ -48,6 +45,8 @@ public class ScriptConfiguration {
         this.configured = false;
         this.preferStalls = false;
 
+        this.useRoguesOutfit = false;
+
         // Default anti-ban settings
         this.antiBanEnabled = true;
         this.antiBanIntensity = 50;
@@ -59,47 +58,7 @@ public class ScriptConfiguration {
 
         // Initialize food item list
         this.foodItems = Arrays.asList("Cake", "Bread", "Fish", "Shark", "Lobster", "Salmon", "Tuna", "Monkfish",
-                "Food", "Potion", "Brew", "Wine");
-
-        // Default Rogues' Den settings
-        this.roguesDenEnabled = false;
-        this.stopAfterFullOutfit = true;
-        this.useStaminaPotions = true;
-        this.maxMazeRuns = 0; // 0 means unlimited
-
-    }
-
-    // Add these getters and setters
-    public boolean isRoguesDenEnabled() {
-        return roguesDenEnabled;
-    }
-
-    public void setRoguesDenEnabled(boolean roguesDenEnabled) {
-        this.roguesDenEnabled = roguesDenEnabled;
-    }
-
-    public boolean isStopAfterFullOutfit() {
-        return stopAfterFullOutfit;
-    }
-
-    public void setStopAfterFullOutfit(boolean stopAfterFullOutfit) {
-        this.stopAfterFullOutfit = stopAfterFullOutfit;
-    }
-
-    public boolean isUseStaminaPotions() {
-        return useStaminaPotions;
-    }
-
-    public void setUseStaminaPotions(boolean useStaminaPotions) {
-        this.useStaminaPotions = useStaminaPotions;
-    }
-
-    public int getMaxMazeRuns() {
-        return maxMazeRuns;
-    }
-
-    public void setMaxMazeRuns(int maxMazeRuns) {
-        this.maxMazeRuns = maxMazeRuns;
+                "Food", "Wine");
     }
 
     // Getters and setters remain the same
@@ -193,25 +152,16 @@ public class ScriptConfiguration {
         this.foodItems = foodItems;
     }
 
-    // Other getters/setters continue...
-
-    /**
-     * Gets all available thieving method names.
-     * Limited to working methods only - only Tea and Cake stalls included.
-     *
-     * @return String array of thieving method names
-     */
     public String[] getAllThievingMethods() {
         return new String[]{
-                "Man", "Woman", "Farmer", "Warrior", "Guard", "Master Farmer",
-                "Knight of Ardougne", "Paladin", "Hero",
-                "Cake Stall", "Tea Stall" // Only include working stalls
+                "Man", "Woman", "Warrior", "Guard", "Master Farmer",
+                "Knight of Ardougne", "Paladin", "Hero"
         };
     }
 
     /**
      * Determines the optimal thieving target based on current thieving level
-     * Updated to only use Tea and Cake stalls
+     * Updated to include Summer Garden at higher levels
      *
      * @param thievingLevel The current thieving level
      * @return The name of the optimal target
@@ -219,8 +169,13 @@ public class ScriptConfiguration {
     public String determineOptimalTarget(int thievingLevel) {
         if (thievingLevel >= 90) return "Hero";
         else if (thievingLevel >= 80) return "Paladin";
-        else if (thievingLevel >= 70) return "Paladin";
-        else if (thievingLevel >= 55) return "Knight of Ardougne";
+        else if (thievingLevel >= 70) {
+            if (preferStalls) return "Summer Garden";
+            else return "Paladin";
+        } else if (thievingLevel >= 65) {
+            if (preferStalls) return "Summer Garden";
+            else return "Knight of Ardougne";
+        } else if (thievingLevel >= 55) return "Knight of Ardougne";
         else if (thievingLevel >= 40) return "Master Farmer";
         else if (thievingLevel >= 25) return "Warrior";
         else if (thievingLevel >= 20) {
@@ -236,5 +191,13 @@ public class ScriptConfiguration {
                 return "Man";
             }
         } else return "Man";
+    }
+
+    public boolean isUseRoguesOutfit() {
+        return useRoguesOutfit;
+    }
+
+    public void setUseRoguesOutfit(boolean useRoguesOutfit) {
+        this.useRoguesOutfit = useRoguesOutfit;
     }
 }
